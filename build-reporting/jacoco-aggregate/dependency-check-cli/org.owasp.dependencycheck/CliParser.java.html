@@ -1,0 +1,1548 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>CliParser.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Dependency-Check Build-Reporting</a> &gt; <a href="../index.html" class="el_bundle">dependency-check-cli</a> &gt; <a href="index.source.html" class="el_package">org.owasp.dependencycheck</a> &gt; <span class="el_source">CliParser.java</span></div><h1>CliParser.java</h1><pre class="source lang-java linenums">/*
+ * This file is part of dependency-check-cli.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Copyright (c) 2012 Jeremy Long. All Rights Reserved.
+ */
+package org.owasp.dependencycheck;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.OptionGroup;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
+import org.owasp.dependencycheck.reporting.ReportGenerator.Format;
+import org.owasp.dependencycheck.utils.InvalidSettingException;
+import org.owasp.dependencycheck.utils.Settings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * A utility to parse command line arguments for the DependencyCheck.
+ *
+ * @author Jeremy Long
+ */
+public final class CliParser {
+
+    /**
+     * The logger.
+     */
+<span class="nc" id="L47">    private static final Logger LOGGER = LoggerFactory.getLogger(CliParser.class);</span>
+    /**
+     * The command line.
+     */
+    private CommandLine line;
+    /**
+     * Indicates whether the arguments are valid.
+     */
+<span class="nc" id="L55">    private boolean isValid = true;</span>
+    /**
+     * The configured settings.
+     */
+    private final Settings settings;
+
+    /**
+     * Constructs a new CLI Parser object with the configured settings.
+     *
+     * @param settings the configured settings
+     */
+<span class="nc" id="L66">    public CliParser(Settings settings) {</span>
+<span class="nc" id="L67">        this.settings = settings;</span>
+<span class="nc" id="L68">    }</span>
+
+    /**
+     * Parses the arguments passed in and captures the results for later use.
+     *
+     * @param args the command line arguments
+     * @throws FileNotFoundException is thrown when a 'file' argument does not
+     * point to a file that exists.
+     * @throws ParseException is thrown when a Parse Exception occurs.
+     */
+    public void parse(String[] args) throws FileNotFoundException, ParseException {
+<span class="nc" id="L79">        line = parseArgs(args);</span>
+
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (line != null) {</span>
+<span class="nc" id="L82">            validateArgs();</span>
+        }
+<span class="nc" id="L84">    }</span>
+
+    /**
+     * Parses the command line arguments.
+     *
+     * @param args the command line arguments
+     * @return the results of parsing the command line arguments
+     * @throws ParseException if the arguments are invalid
+     */
+    private CommandLine parseArgs(String[] args) throws ParseException {
+<span class="nc" id="L94">        final CommandLineParser parser = new DefaultParser();</span>
+<span class="nc" id="L95">        final Options options = createCommandLineOptions();</span>
+<span class="nc" id="L96">        return parser.parse(options, args);</span>
+    }
+
+    /**
+     * Validates that the command line arguments are valid.
+     *
+     * @throws FileNotFoundException if there is a file specified by either the
+     * SCAN or CPE command line arguments that does not exist.
+     * @throws ParseException is thrown if there is an exception parsing the
+     * command line.
+     */
+    private void validateArgs() throws FileNotFoundException, ParseException {
+<span class="nc bnc" id="L108" title="All 4 branches missed.">        if (isUpdateOnly() || isRunScan()) {</span>
+<span class="nc" id="L109">            final String value = line.getOptionValue(ARGUMENT.CVE_VALID_FOR_HOURS);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">            if (value != null) {</span>
+                try {
+<span class="nc" id="L112">                    final int i = Integer.parseInt(value);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                    if (i &lt; 0) {</span>
+<span class="nc" id="L114">                        throw new ParseException(&quot;Invalid Setting: cveValidForHours must be a number greater than or equal to 0.&quot;);</span>
+                    }
+<span class="nc" id="L116">                } catch (NumberFormatException ex) {</span>
+<span class="nc" id="L117">                    throw new ParseException(&quot;Invalid Setting: cveValidForHours must be a number greater than or equal to 0.&quot;);</span>
+<span class="nc" id="L118">                }</span>
+            }
+        }
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        if (isRunScan()) {</span>
+<span class="nc" id="L122">            validatePathExists(getScanFiles(), ARGUMENT.SCAN);</span>
+<span class="nc" id="L123">            validatePathExists(getReportDirectory(), ARGUMENT.OUT);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">            if (getPathToMono() != null) {</span>
+<span class="nc" id="L125">                validatePathExists(getPathToMono(), ARGUMENT.PATH_TO_MONO);</span>
+            }
+<span class="nc bnc" id="L127" title="All 4 branches missed.">            if (!line.hasOption(ARGUMENT.APP_NAME) &amp;&amp; !line.hasOption(ARGUMENT.PROJECT)) {</span>
+<span class="nc" id="L128">                throw new ParseException(&quot;Missing '&quot; + ARGUMENT.PROJECT + &quot;' argument; the scan cannot be run without the an project name.&quot;);</span>
+            }
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (line.hasOption(ARGUMENT.OUTPUT_FORMAT)) {</span>
+<span class="nc" id="L131">                final String format = line.getOptionValue(ARGUMENT.OUTPUT_FORMAT);</span>
+                try {
+<span class="nc" id="L133">                    Format.valueOf(format);</span>
+<span class="nc" id="L134">                } catch (IllegalArgumentException ex) {</span>
+<span class="nc" id="L135">                    final String msg = String.format(&quot;An invalid 'format' of '%s' was specified. &quot;</span>
+                            + &quot;Supported output formats are HTML, XML, CSV, JSON, VULN, or ALL&quot;, format);
+<span class="nc" id="L137">                    throw new ParseException(msg);</span>
+<span class="nc" id="L138">                }</span>
+            }
+<span class="nc bnc" id="L140" title="All 16 branches missed.">            if ((getBaseCve12Url() != null || getBaseCve20Url() != null || getModifiedCve12Url() != null || getModifiedCve20Url() != null)</span>
+                    &amp;&amp; (getBaseCve12Url() == null || getBaseCve20Url() == null || getModifiedCve12Url() == null || getModifiedCve20Url() == null)) {
+<span class="nc" id="L142">                final String msg = &quot;If one of the CVE URLs is specified they must all be specified; please add the missing CVE URL.&quot;;</span>
+<span class="nc" id="L143">                throw new ParseException(msg);</span>
+            }
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            if (line.hasOption((ARGUMENT.SYM_LINK_DEPTH))) {</span>
+                try {
+<span class="nc" id="L147">                    final int i = Integer.parseInt(line.getOptionValue(ARGUMENT.SYM_LINK_DEPTH));</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">                    if (i &lt; 0) {</span>
+<span class="nc" id="L149">                        throw new ParseException(&quot;Symbolic Link Depth (symLink) must be greater than zero.&quot;);</span>
+                    }
+<span class="nc" id="L151">                } catch (NumberFormatException ex) {</span>
+<span class="nc" id="L152">                    throw new ParseException(&quot;Symbolic Link Depth (symLink) is not a number.&quot;);</span>
+<span class="nc" id="L153">                }</span>
+            }
+        }
+<span class="nc" id="L156">    }</span>
+
+    /**
+     * Validates whether or not the path(s) points at a file that exists; if the
+     * path(s) does not point to an existing file a FileNotFoundException is
+     * thrown.
+     *
+     * @param paths the paths to validate if they exists
+     * @param optType the option being validated (e.g. scan, out, etc.)
+     * @throws FileNotFoundException is thrown if one of the paths being
+     * validated does not exist.
+     */
+    private void validatePathExists(String[] paths, String optType) throws FileNotFoundException {
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        for (String path : paths) {</span>
+<span class="nc" id="L170">            validatePathExists(path, optType);</span>
+        }
+<span class="nc" id="L172">    }</span>
+
+    /**
+     * Validates whether or not the path points at a file that exists; if the
+     * path does not point to an existing file a FileNotFoundException is
+     * thrown.
+     *
+     * @param path the paths to validate if they exists
+     * @param argumentName the argument being validated (e.g. scan, out, etc.)
+     * @throws FileNotFoundException is thrown if the path being validated does
+     * not exist.
+     */
+    private void validatePathExists(String path, String argumentName) throws FileNotFoundException {
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (path == null) {</span>
+<span class="nc" id="L186">            isValid = false;</span>
+<span class="nc" id="L187">            final String msg = String.format(&quot;Invalid '%s' argument: null&quot;, argumentName);</span>
+<span class="nc" id="L188">            throw new FileNotFoundException(msg);</span>
+<span class="nc bnc" id="L189" title="All 4 branches missed.">        } else if (!path.contains(&quot;*&quot;) &amp;&amp; !path.contains(&quot;?&quot;)) {</span>
+<span class="nc" id="L190">            File f = new File(path);</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">            if (&quot;o&quot;.equalsIgnoreCase(argumentName.substring(0, 1)) &amp;&amp; !&quot;ALL&quot;.equalsIgnoreCase(this.getReportFormat())) {</span>
+<span class="nc" id="L192">                final String checkPath = path.toLowerCase();</span>
+<span class="nc bnc" id="L193" title="All 6 branches missed.">                if (checkPath.endsWith(&quot;.html&quot;) || checkPath.endsWith(&quot;.xml&quot;) || checkPath.endsWith(&quot;.htm&quot;)) {</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                    if (f.getParentFile() == null) {</span>
+<span class="nc" id="L195">                        f = new File(&quot;.&quot;, path);</span>
+                    }
+<span class="nc bnc" id="L197" title="All 2 branches missed.">                    if (!f.getParentFile().isDirectory()) {</span>
+<span class="nc" id="L198">                        isValid = false;</span>
+<span class="nc" id="L199">                        final String msg = String.format(&quot;Invalid '%s' argument: '%s'&quot;, argumentName, path);</span>
+<span class="nc" id="L200">                        throw new FileNotFoundException(msg);</span>
+                    }
+                }
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            } else if (!f.exists()) {</span>
+<span class="nc" id="L204">                isValid = false;</span>
+<span class="nc" id="L205">                final String msg = String.format(&quot;Invalid '%s' argument: '%s'&quot;, argumentName, path);</span>
+<span class="nc" id="L206">                throw new FileNotFoundException(msg);</span>
+            }
+<span class="nc bnc" id="L208" title="All 4 branches missed.">        } else if (path.startsWith(&quot;//&quot;) || path.startsWith(&quot;\\\\&quot;)) {</span>
+<span class="nc" id="L209">            isValid = false;</span>
+<span class="nc" id="L210">            final String msg = String.format(&quot;Invalid '%s' argument: '%s'%nUnable to scan paths that start with '//'.&quot;, argumentName, path);</span>
+<span class="nc" id="L211">            throw new FileNotFoundException(msg);</span>
+<span class="nc bnc" id="L212" title="All 8 branches missed.">        } else if ((path.endsWith(&quot;/*&quot;) &amp;&amp; !path.endsWith(&quot;**/*&quot;)) || (path.endsWith(&quot;\\*&quot;) &amp;&amp; path.endsWith(&quot;**\\*&quot;))) {</span>
+<span class="nc" id="L213">            LOGGER.warn(&quot;Possibly incorrect path '{}' from argument '{}' because it ends with a slash star; &quot;</span>
+                    + &quot;dependency-check uses ant-style paths&quot;, path, argumentName);
+        }
+<span class="nc" id="L216">    }</span>
+
+    /**
+     * Generates an Options collection that is used to parse the command line
+     * and to display the help message.
+     *
+     * @return the command line options used for parsing the command line
+     */
+    @SuppressWarnings(&quot;static-access&quot;)
+    private Options createCommandLineOptions() {
+<span class="nc" id="L226">        final Options options = new Options();</span>
+<span class="nc" id="L227">        addStandardOptions(options);</span>
+<span class="nc" id="L228">        addAdvancedOptions(options);</span>
+<span class="nc" id="L229">        addDeprecatedOptions(options);</span>
+<span class="nc" id="L230">        return options;</span>
+    }
+
+    /**
+     * Adds the standard command line options to the given options collection.
+     *
+     * @param options a collection of command line arguments
+     */
+    @SuppressWarnings(&quot;static-access&quot;)
+    private void addStandardOptions(final Options options) {
+<span class="nc" id="L240">        final Option help = new Option(ARGUMENT.HELP_SHORT, ARGUMENT.HELP, false,</span>
+                &quot;Print this message.&quot;);
+
+<span class="nc" id="L243">        final Option advancedHelp = Option.builder().longOpt(ARGUMENT.ADVANCED_HELP)</span>
+                .desc(&quot;Print the advanced help message.&quot;).build();
+
+<span class="nc" id="L246">        final Option version = new Option(ARGUMENT.VERSION_SHORT, ARGUMENT.VERSION,</span>
+                false, &quot;Print the version information.&quot;);
+
+<span class="nc" id="L249">        final Option noUpdate = new Option(ARGUMENT.DISABLE_AUTO_UPDATE_SHORT, ARGUMENT.DISABLE_AUTO_UPDATE,</span>
+                false, &quot;Disables the automatic updating of the CPE data.&quot;);
+
+<span class="nc" id="L252">        final Option projectName = Option.builder().hasArg().argName(&quot;name&quot;).longOpt(ARGUMENT.PROJECT)</span>
+                .desc(&quot;The name of the project being scanned. This is a required argument.&quot;)
+                .build();
+
+<span class="nc" id="L256">        final Option path = Option.builder(ARGUMENT.SCAN_SHORT).argName(&quot;path&quot;).hasArg().longOpt(ARGUMENT.SCAN)</span>
+                .desc(&quot;The path to scan - this option can be specified multiple times. Ant style&quot;
+                        + &quot; paths are supported (e.g. path/**/*.jar).&quot;)
+                .build();
+
+<span class="nc" id="L261">        final Option excludes = Option.builder().argName(&quot;pattern&quot;).hasArg().longOpt(ARGUMENT.EXCLUDE)</span>
+                .desc(&quot;Specify and exclusion pattern. This option can be specified multiple times&quot;
+                        + &quot; and it accepts Ant style exclusions.&quot;)
+                .build();
+
+<span class="nc" id="L266">        final Option props = Option.builder(ARGUMENT.PROP_SHORT).argName(&quot;file&quot;).hasArg().longOpt(ARGUMENT.PROP)</span>
+                .desc(&quot;A property file to load.&quot;)
+                .build();
+
+<span class="nc" id="L270">        final Option out = Option.builder(ARGUMENT.OUT_SHORT).argName(&quot;path&quot;).hasArg().longOpt(ARGUMENT.OUT)</span>
+                .desc(&quot;The folder to write reports to. This defaults to the current directory. &quot;
+                        + &quot;It is possible to set this to a specific file name if the format argument is not set to ALL.&quot;)
+                .build();
+
+<span class="nc" id="L275">        final Option outputFormat = Option.builder(ARGUMENT.OUTPUT_FORMAT_SHORT).argName(&quot;format&quot;).hasArg().longOpt(ARGUMENT.OUTPUT_FORMAT)</span>
+                .desc(&quot;The output format to write to (XML, JSON, HTML, VULN, ALL). The default is HTML.&quot;)
+                .build();
+
+<span class="nc" id="L279">        final Option verboseLog = Option.builder(ARGUMENT.VERBOSE_LOG_SHORT).argName(&quot;file&quot;).hasArg().longOpt(ARGUMENT.VERBOSE_LOG)</span>
+                .desc(&quot;The file path to write verbose logging information.&quot;)
+                .build();
+
+<span class="nc" id="L283">        final Option symLinkDepth = Option.builder().argName(&quot;depth&quot;).hasArg().longOpt(ARGUMENT.SYM_LINK_DEPTH)</span>
+                .desc(&quot;Sets how deep nested symbolic links will be followed; 0 indicates symbolic links will not be followed.&quot;)
+                .build();
+
+<span class="nc" id="L287">        final Option suppressionFile = Option.builder().argName(&quot;file&quot;).hasArgs().longOpt(ARGUMENT.SUPPRESSION_FILES)</span>
+                .desc(&quot;The file path to the suppression XML file. This can be specified more then once to utilize multiple &quot;
+                        + &quot;suppression files&quot;)
+                .build();
+
+<span class="nc" id="L292">        final Option hintsFile = Option.builder().argName(&quot;file&quot;).hasArg().longOpt(ARGUMENT.HINTS_FILE)</span>
+                .desc(&quot;The file path to the hints XML file.&quot;)
+                .build();
+
+<span class="nc" id="L296">        final Option cveValidForHours = Option.builder().argName(&quot;hours&quot;).hasArg().longOpt(ARGUMENT.CVE_VALID_FOR_HOURS)</span>
+                .desc(&quot;The number of hours to wait before checking for new updates from the NVD.&quot;)
+                .build();
+
+<span class="nc" id="L300">        final Option experimentalEnabled = Option.builder().longOpt(ARGUMENT.EXPERIMENTAL)</span>
+                .desc(&quot;Enables the experimental analyzers.&quot;)
+                .build();
+
+<span class="nc" id="L304">        final Option retiredEnabled = Option.builder().longOpt(ARGUMENT.RETIRED)</span>
+                .desc(&quot;Enables the experimental analyzers.&quot;)
+                .build();
+
+<span class="nc" id="L308">        final Option failOnCVSS = Option.builder().argName(&quot;score&quot;).hasArg().longOpt(ARGUMENT.FAIL_ON_CVSS)</span>
+                .desc(&quot;Specifies if the build should be failed if a CVSS score above a specified level is identified. &quot;
+                        + &quot;The default is 11; since the CVSS scores are 0-10, by default the build will never fail.&quot;)
+                .build();
+
+        //This is an option group because it can be specified more then once.
+<span class="nc" id="L314">        final OptionGroup og = new OptionGroup();</span>
+<span class="nc" id="L315">        og.addOption(path);</span>
+
+<span class="nc" id="L317">        final OptionGroup exog = new OptionGroup();</span>
+<span class="nc" id="L318">        exog.addOption(excludes);</span>
+
+<span class="nc" id="L320">        options.addOptionGroup(og)</span>
+                .addOptionGroup(exog)
+                .addOption(projectName)
+                .addOption(out)
+                .addOption(outputFormat)
+                .addOption(version)
+                .addOption(help)
+                .addOption(advancedHelp)
+                .addOption(noUpdate)
+                .addOption(symLinkDepth)
+                .addOption(props)
+                .addOption(verboseLog)
+                .addOption(suppressionFile)
+                .addOption(hintsFile)
+                .addOption(cveValidForHours)
+                .addOption(experimentalEnabled)
+                .addOption(retiredEnabled)
+                .addOption(failOnCVSS);
+<span class="nc" id="L338">    }</span>
+
+    /**
+     * Adds the advanced command line options to the given options collection.
+     * These are split out for purposes of being able to display two different
+     * help messages.
+     *
+     * @param options a collection of command line arguments
+     */
+    @SuppressWarnings(&quot;static-access&quot;)
+    private void addAdvancedOptions(final Options options) {
+
+<span class="nc" id="L350">        final Option cve12Base = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.CVE_BASE_12)</span>
+                .desc(&quot;Base URL for each year’s CVE 1.2, the %d will be replaced with the year. &quot;)
+                .build();
+
+<span class="nc" id="L354">        final Option cve20Base = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.CVE_BASE_20)</span>
+                .desc(&quot;Base URL for each year’s CVE 2.0, the %d will be replaced with the year.&quot;)
+                .build();
+
+<span class="nc" id="L358">        final Option cve12Modified = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.CVE_MOD_12)</span>
+                .desc(&quot;URL for the modified CVE 1.2.&quot;)
+                .build();
+
+<span class="nc" id="L362">        final Option cve20Modified = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.CVE_MOD_20)</span>
+                .desc(&quot;URL for the modified CVE 2.0.&quot;)
+                .build();
+
+<span class="nc" id="L366">        final Option updateOnly = Option.builder().longOpt(ARGUMENT.UPDATE_ONLY)</span>
+                .desc(&quot;Only update the local NVD data cache; no scan will be executed.&quot;).build();
+
+<span class="nc" id="L369">        final Option data = Option.builder(ARGUMENT.DATA_DIRECTORY_SHORT).argName(&quot;path&quot;).hasArg().longOpt(ARGUMENT.DATA_DIRECTORY)</span>
+                .desc(&quot;The location of the H2 Database file. This option should generally not be set.&quot;)
+                .build();
+
+<span class="nc" id="L373">        final Option nexusUrl = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.NEXUS_URL)</span>
+                .desc(&quot;The url to the Nexus Server's REST API Endpoint (http://domain/nexus/service/local). &quot;
+                        + &quot;If not set the Nexus Analyzer will be disabled.&quot;).build();
+
+<span class="nc" id="L377">        final Option nexusUsesProxy = Option.builder().argName(&quot;true/false&quot;).hasArg().longOpt(ARGUMENT.NEXUS_USES_PROXY)</span>
+                .desc(&quot;Whether or not the configured proxy should be used when connecting to Nexus.&quot;)
+                .build();
+
+<span class="nc" id="L381">        final Option additionalZipExtensions = Option.builder().argName(&quot;extensions&quot;).hasArg()</span>
+                .longOpt(ARGUMENT.ADDITIONAL_ZIP_EXTENSIONS)
+                .desc(&quot;A comma separated list of additional extensions to be scanned as ZIP files &quot;
+                        + &quot;(ZIP, EAR, WAR are already treated as zip files)&quot;).build();
+
+<span class="nc" id="L386">        final Option pathToMono = Option.builder().argName(&quot;path&quot;).hasArg().longOpt(ARGUMENT.PATH_TO_MONO)</span>
+                .desc(&quot;The path to Mono for .NET Assembly analysis on non-windows systems.&quot;)
+                .build();
+
+<span class="nc" id="L390">        final Option pathToBundleAudit = Option.builder().argName(&quot;path&quot;).hasArg()</span>
+                .longOpt(ARGUMENT.PATH_TO_BUNDLE_AUDIT)
+                .desc(&quot;The path to bundle-audit for Gem bundle analysis.&quot;).build();
+
+<span class="nc" id="L394">        final Option connectionTimeout = Option.builder(ARGUMENT.CONNECTION_TIMEOUT_SHORT).argName(&quot;timeout&quot;).hasArg()</span>
+                .longOpt(ARGUMENT.CONNECTION_TIMEOUT).desc(&quot;The connection timeout (in milliseconds) to use when downloading resources.&quot;)
+                .build();
+
+<span class="nc" id="L398">        final Option proxyServer = Option.builder().argName(&quot;server&quot;).hasArg().longOpt(ARGUMENT.PROXY_SERVER)</span>
+                .desc(&quot;The proxy server to use when downloading resources.&quot;).build();
+
+<span class="nc" id="L401">        final Option proxyPort = Option.builder().argName(&quot;port&quot;).hasArg().longOpt(ARGUMENT.PROXY_PORT)</span>
+                .desc(&quot;The proxy port to use when downloading resources.&quot;).build();
+
+<span class="nc" id="L404">        final Option proxyUsername = Option.builder().argName(&quot;user&quot;).hasArg().longOpt(ARGUMENT.PROXY_USERNAME)</span>
+                .desc(&quot;The proxy username to use when downloading resources.&quot;).build();
+
+<span class="nc" id="L407">        final Option proxyPassword = Option.builder().argName(&quot;pass&quot;).hasArg().longOpt(ARGUMENT.PROXY_PASSWORD)</span>
+                .desc(&quot;The proxy password to use when downloading resources.&quot;).build();
+
+<span class="nc" id="L410">        final Option connectionString = Option.builder().argName(&quot;connStr&quot;).hasArg().longOpt(ARGUMENT.CONNECTION_STRING)</span>
+                .desc(&quot;The connection string to the database.&quot;).build();
+
+<span class="nc" id="L413">        final Option dbUser = Option.builder().argName(&quot;user&quot;).hasArg().longOpt(ARGUMENT.DB_NAME)</span>
+                .desc(&quot;The username used to connect to the database.&quot;).build();
+
+<span class="nc" id="L416">        final Option dbPassword = Option.builder().argName(&quot;password&quot;).hasArg().longOpt(ARGUMENT.DB_PASSWORD)</span>
+                .desc(&quot;The password for connecting to the database.&quot;).build();
+
+<span class="nc" id="L419">        final Option dbDriver = Option.builder().argName(&quot;driver&quot;).hasArg().longOpt(ARGUMENT.DB_DRIVER)</span>
+                .desc(&quot;The database driver name.&quot;).build();
+
+<span class="nc" id="L422">        final Option dbDriverPath = Option.builder().argName(&quot;path&quot;).hasArg().longOpt(ARGUMENT.DB_DRIVER_PATH)</span>
+                .desc(&quot;The path to the database driver; note, this does not need to be set unless the JAR is outside of the classpath.&quot;)
+                .build();
+
+<span class="nc" id="L426">        final Option disableJarAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_JAR)</span>
+                .desc(&quot;Disable the Jar Analyzer.&quot;).build();
+
+<span class="nc" id="L429">        final Option disableArchiveAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_ARCHIVE)</span>
+                .desc(&quot;Disable the Archive Analyzer.&quot;).build();
+
+<span class="nc" id="L432">        final Option disableNuspecAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_NUSPEC)</span>
+                .desc(&quot;Disable the Nuspec Analyzer.&quot;).build();
+
+<span class="nc" id="L435">        final Option disableAssemblyAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_ASSEMBLY)</span>
+                .desc(&quot;Disable the .NET Assembly Analyzer.&quot;).build();
+
+<span class="nc" id="L438">        final Option disablePythonDistributionAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_PY_DIST)</span>
+                .desc(&quot;Disable the Python Distribution Analyzer.&quot;).build();
+
+<span class="nc" id="L441">        final Option disablePythonPackageAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_PY_PKG)</span>
+                .desc(&quot;Disable the Python Package Analyzer.&quot;).build();
+
+<span class="nc" id="L444">        final Option disableComposerAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_COMPOSER)</span>
+                .desc(&quot;Disable the PHP Composer Analyzer.&quot;).build();
+
+<span class="nc" id="L447">        final Option disableAutoconfAnalyzer = Option.builder()</span>
+                .longOpt(ARGUMENT.DISABLE_AUTOCONF)
+                .desc(&quot;Disable the Autoconf Analyzer.&quot;).build();
+
+<span class="nc" id="L451">        final Option disableOpenSSLAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_OPENSSL)</span>
+                .desc(&quot;Disable the OpenSSL Analyzer.&quot;).build();
+<span class="nc" id="L453">        final Option disableCmakeAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_CMAKE)</span>
+                .desc(&quot;Disable the Cmake Analyzer.&quot;).build();
+
+<span class="nc" id="L456">        final Option cocoapodsAnalyzerEnabled = Option.builder().longOpt(ARGUMENT.DISABLE_COCOAPODS)</span>
+                .desc(&quot;Disable the CocoaPods Analyzer.&quot;).build();
+<span class="nc" id="L458">        final Option swiftPackageManagerAnalyzerEnabled = Option.builder().longOpt(ARGUMENT.DISABLE_SWIFT)</span>
+                .desc(&quot;Disable the swift package Analyzer.&quot;).build();
+
+<span class="nc" id="L461">        final Option disableCentralAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_CENTRAL)</span>
+                .desc(&quot;Disable the Central Analyzer. If this analyzer is disabled it is likely you also want to disable &quot;
+                        + &quot;the Nexus Analyzer.&quot;).build();
+
+<span class="nc" id="L465">        final Option disableNexusAnalyzer = Option.builder().longOpt(ARGUMENT.DISABLE_NEXUS)</span>
+                .desc(&quot;Disable the Nexus Analyzer.&quot;).build();
+
+<span class="nc" id="L468">        final Option purge = Option.builder().longOpt(ARGUMENT.PURGE_NVD)</span>
+                .desc(&quot;Purges the local NVD data cache&quot;)
+                .build();
+
+<span class="nc" id="L472">        options.addOption(updateOnly)</span>
+                .addOption(cve12Base)
+                .addOption(cve20Base)
+                .addOption(cve12Modified)
+                .addOption(cve20Modified)
+                .addOption(proxyPort)
+                .addOption(proxyServer)
+                .addOption(proxyUsername)
+                .addOption(proxyPassword)
+                .addOption(connectionTimeout)
+                .addOption(connectionString)
+                .addOption(dbUser)
+                .addOption(data)
+                .addOption(dbPassword)
+                .addOption(dbDriver)
+                .addOption(dbDriverPath)
+                .addOption(disableJarAnalyzer)
+                .addOption(disableArchiveAnalyzer)
+                .addOption(disableAssemblyAnalyzer)
+                .addOption(pathToBundleAudit)
+                .addOption(disablePythonDistributionAnalyzer)
+                .addOption(disableCmakeAnalyzer)
+                .addOption(disablePythonPackageAnalyzer)
+                .addOption(Option.builder().longOpt(ARGUMENT.DISABLE_RUBYGEMS)
+                        .desc(&quot;Disable the Ruby Gemspec Analyzer.&quot;).build())
+                .addOption(Option.builder().longOpt(ARGUMENT.DISABLE_BUNDLE_AUDIT)
+                        .desc(&quot;Disable the Ruby Bundler-Audit Analyzer.&quot;).build())
+                .addOption(disableAutoconfAnalyzer)
+                .addOption(disableComposerAnalyzer)
+                .addOption(disableOpenSSLAnalyzer)
+                .addOption(disableNuspecAnalyzer)
+                .addOption(disableCentralAnalyzer)
+                .addOption(disableNexusAnalyzer)
+                .addOption(cocoapodsAnalyzerEnabled)
+                .addOption(swiftPackageManagerAnalyzerEnabled)
+                .addOption(Option.builder().longOpt(ARGUMENT.DISABLE_NODE_JS)
+                        .desc(&quot;Disable the Node.js Package Analyzer.&quot;).build())
+                .addOption(Option.builder().longOpt(ARGUMENT.DISABLE_NSP)
+                        .desc(&quot;Disable the NSP Package Analyzer.&quot;).build())
+                .addOption(nexusUrl)
+                .addOption(nexusUsesProxy)
+                .addOption(additionalZipExtensions)
+                .addOption(pathToMono)
+                .addOption(pathToBundleAudit)
+                .addOption(purge);
+<span class="nc" id="L517">    }</span>
+
+    /**
+     * Adds the deprecated command line options to the given options collection.
+     * These are split out for purposes of not including them in the help
+     * message. We need to add the deprecated options so as not to break
+     * existing scripts.
+     *
+     * @param options a collection of command line arguments
+     */
+    @SuppressWarnings({&quot;static-access&quot;, &quot;deprecation&quot;})
+    private void addDeprecatedOptions(final Options options) {
+
+<span class="nc" id="L530">        final Option proxyServer = Option.builder().argName(&quot;url&quot;).hasArg().longOpt(ARGUMENT.PROXY_URL)</span>
+                .desc(&quot;The proxy url argument is deprecated, use proxyserver instead.&quot;)
+                .build();
+<span class="nc" id="L533">        final Option appName = Option.builder(ARGUMENT.APP_NAME_SHORT).argName(&quot;name&quot;).hasArg().longOpt(ARGUMENT.APP_NAME)</span>
+                .desc(&quot;The name of the project being scanned.&quot;)
+                .build();
+
+<span class="nc" id="L537">        options.addOption(proxyServer);</span>
+<span class="nc" id="L538">        options.addOption(appName);</span>
+<span class="nc" id="L539">    }</span>
+
+    /**
+     * Determines if the 'version' command line argument was passed in.
+     *
+     * @return whether or not the 'version' command line argument was passed in
+     */
+    public boolean isGetVersion() {
+<span class="nc bnc" id="L547" title="All 4 branches missed.">        return (line != null) &amp;&amp; line.hasOption(ARGUMENT.VERSION);</span>
+    }
+
+    /**
+     * Determines if the 'help' command line argument was passed in.
+     *
+     * @return whether or not the 'help' command line argument was passed in
+     */
+    public boolean isGetHelp() {
+<span class="nc bnc" id="L556" title="All 4 branches missed.">        return (line != null) &amp;&amp; line.hasOption(ARGUMENT.HELP);</span>
+    }
+
+    /**
+     * Determines if the 'scan' command line argument was passed in.
+     *
+     * @return whether or not the 'scan' command line argument was passed in
+     */
+    public boolean isRunScan() {
+<span class="nc bnc" id="L565" title="All 6 branches missed.">        return (line != null) &amp;&amp; isValid &amp;&amp; line.hasOption(ARGUMENT.SCAN);</span>
+    }
+
+    /**
+     * Returns the symbolic link depth (how deeply symbolic links will be
+     * followed).
+     *
+     * @return the symbolic link depth
+     */
+    public int getSymLinkDepth() {
+<span class="nc" id="L575">        int value = 0;</span>
+        try {
+<span class="nc" id="L577">            value = Integer.parseInt(line.getOptionValue(ARGUMENT.SYM_LINK_DEPTH, &quot;0&quot;));</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">            if (value &lt; 0) {</span>
+<span class="nc" id="L579">                value = 0;</span>
+            }
+<span class="nc" id="L581">        } catch (NumberFormatException ex) {</span>
+<span class="nc" id="L582">            LOGGER.debug(&quot;Symbolic link was not a number&quot;);</span>
+<span class="nc" id="L583">        }</span>
+<span class="nc" id="L584">        return value;</span>
+    }
+
+    /**
+     * Utility method to determine if one of the disable options has been set.
+     * If not set, this method will check the currently configured settings for
+     * the current value to return.
+     *
+     * Example given `--disableArchive` on the command line would cause this
+     * method to return true for the disable archive setting.
+     *
+     * @param argument the command line argument
+     * @param setting the corresponding settings key
+     * @return true if the disable option was set, if not set the currently
+     * configured value will be returned
+     */
+    private boolean hasDisableOption(String argument, String setting) {
+<span class="nc bnc" id="L601" title="All 4 branches missed.">        if (line == null || !line.hasOption(argument)) {</span>
+            try {
+<span class="nc bnc" id="L603" title="All 2 branches missed.">                return !settings.getBoolean(setting);</span>
+<span class="nc" id="L604">            } catch (InvalidSettingException ise) {</span>
+<span class="nc" id="L605">                LOGGER.warn(&quot;Invalid property setting '{}' defaulting to false&quot;, setting);</span>
+<span class="nc" id="L606">                return false;</span>
+            }
+        } else {
+<span class="nc" id="L609">            return true;</span>
+        }
+    }
+
+    /**
+     * Returns true if the disableJar command line argument was specified.
+     *
+     * @return true if the disableJar command line argument was specified;
+     * otherwise false
+     */
+    public boolean isJarDisabled() {
+<span class="nc" id="L620">        return hasDisableOption(ARGUMENT.DISABLE_JAR, Settings.KEYS.ANALYZER_JAR_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableArchive command line argument was specified.
+     *
+     * @return true if the disableArchive command line argument was specified;
+     * otherwise false
+     */
+    public boolean isArchiveDisabled() {
+<span class="nc" id="L630">        return hasDisableOption(ARGUMENT.DISABLE_ARCHIVE, Settings.KEYS.ANALYZER_ARCHIVE_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableNuspec command line argument was specified.
+     *
+     * @return true if the disableNuspec command line argument was specified;
+     * otherwise false
+     */
+    public boolean isNuspecDisabled() {
+<span class="nc" id="L640">        return hasDisableOption(ARGUMENT.DISABLE_NUSPEC, Settings.KEYS.ANALYZER_NUSPEC_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableAssembly command line argument was specified.
+     *
+     * @return true if the disableAssembly command line argument was specified;
+     * otherwise false
+     */
+    public boolean isAssemblyDisabled() {
+<span class="nc" id="L650">        return hasDisableOption(ARGUMENT.DISABLE_ASSEMBLY, Settings.KEYS.ANALYZER_ASSEMBLY_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableBundleAudit command line argument was
+     * specified.
+     *
+     * @return true if the disableBundleAudit command line argument was
+     * specified; otherwise false
+     */
+    public boolean isBundleAuditDisabled() {
+<span class="nc" id="L661">        return hasDisableOption(ARGUMENT.DISABLE_BUNDLE_AUDIT, Settings.KEYS.ANALYZER_BUNDLE_AUDIT_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disablePyDist command line argument was specified.
+     *
+     * @return true if the disablePyDist command line argument was specified;
+     * otherwise false
+     */
+    public boolean isPythonDistributionDisabled() {
+<span class="nc" id="L671">        return hasDisableOption(ARGUMENT.DISABLE_PY_DIST, Settings.KEYS.ANALYZER_PYTHON_DISTRIBUTION_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disablePyPkg command line argument was specified.
+     *
+     * @return true if the disablePyPkg command line argument was specified;
+     * otherwise false
+     */
+    public boolean isPythonPackageDisabled() {
+<span class="nc" id="L681">        return hasDisableOption(ARGUMENT.DISABLE_PY_PKG, Settings.KEYS.ANALYZER_PYTHON_PACKAGE_ENABLED);</span>
+    }
+
+    /**
+     * Returns whether the Ruby gemspec analyzer is disabled.
+     *
+     * @return true if the {@link ARGUMENT#DISABLE_RUBYGEMS} command line
+     * argument was specified; otherwise false
+     */
+    public boolean isRubyGemspecDisabled() {
+<span class="nc" id="L691">        return hasDisableOption(ARGUMENT.DISABLE_RUBYGEMS, Settings.KEYS.ANALYZER_RUBY_GEMSPEC_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableCmake command line argument was specified.
+     *
+     * @return true if the disableCmake command line argument was specified;
+     * otherwise false
+     */
+    public boolean isCmakeDisabled() {
+<span class="nc" id="L701">        return hasDisableOption(ARGUMENT.DISABLE_CMAKE, Settings.KEYS.ANALYZER_CMAKE_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableAutoconf command line argument was specified.
+     *
+     * @return true if the disableAutoconf command line argument was specified;
+     * otherwise false
+     */
+    public boolean isAutoconfDisabled() {
+<span class="nc" id="L711">        return hasDisableOption(ARGUMENT.DISABLE_AUTOCONF, Settings.KEYS.ANALYZER_AUTOCONF_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableComposer command line argument was specified.
+     *
+     * @return true if the disableComposer command line argument was specified;
+     * otherwise false
+     */
+    public boolean isComposerDisabled() {
+<span class="nc" id="L721">        return hasDisableOption(ARGUMENT.DISABLE_COMPOSER, Settings.KEYS.ANALYZER_COMPOSER_LOCK_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableNexus command line argument was specified.
+     *
+     * @return true if the disableNexus command line argument was specified;
+     * otherwise false
+     */
+    public boolean isNexusDisabled() {
+<span class="nc" id="L731">        return hasDisableOption(ARGUMENT.DISABLE_NEXUS, Settings.KEYS.ANALYZER_NEXUS_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableOpenSSL command line argument was specified.
+     *
+     * @return true if the disableOpenSSL command line argument was specified;
+     * otherwise false
+     */
+    public boolean isOpenSSLDisabled() {
+<span class="nc" id="L741">        return hasDisableOption(ARGUMENT.DISABLE_OPENSSL, Settings.KEYS.ANALYZER_OPENSSL_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableNodeJS command line argument was specified.
+     *
+     * @return true if the disableNodeJS command line argument was specified;
+     * otherwise false
+     */
+    public boolean isNodeJsDisabled() {
+<span class="nc" id="L751">        return hasDisableOption(ARGUMENT.DISABLE_NODE_JS, Settings.KEYS.ANALYZER_NODE_PACKAGE_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableNSP command line argument was specified.
+     *
+     * @return true if the disableNSP command line argument was specified;
+     * otherwise false
+     */
+    public boolean isNspDisabled() {
+<span class="nc" id="L761">        return hasDisableOption(ARGUMENT.DISABLE_NSP, Settings.KEYS.ANALYZER_NSP_PACKAGE_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableCocoapodsAnalyzer command line argument was
+     * specified.
+     *
+     * @return true if the disableCocoapodsAnalyzer command line argument was
+     * specified; otherwise false
+     */
+    public boolean isCocoapodsAnalyzerDisabled() {
+<span class="nc" id="L772">        return hasDisableOption(ARGUMENT.DISABLE_COCOAPODS, Settings.KEYS.ANALYZER_COCOAPODS_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableSwiftPackageManagerAnalyzer command line
+     * argument was specified.
+     *
+     * @return true if the disableSwiftPackageManagerAnalyzer command line
+     * argument was specified; otherwise false
+     */
+    public boolean isSwiftPackageAnalyzerDisabled() {
+<span class="nc" id="L783">        return hasDisableOption(ARGUMENT.DISABLE_SWIFT, Settings.KEYS.ANALYZER_SWIFT_PACKAGE_MANAGER_ENABLED);</span>
+    }
+
+    /**
+     * Returns true if the disableCentral command line argument was specified.
+     *
+     * @return true if the disableCentral command line argument was specified;
+     * otherwise false
+     */
+    public boolean isCentralDisabled() {
+<span class="nc" id="L793">        return hasDisableOption(ARGUMENT.DISABLE_CENTRAL, Settings.KEYS.ANALYZER_CENTRAL_ENABLED);</span>
+    }
+
+    /**
+     * Returns the url to the nexus server if one was specified.
+     *
+     * @return the url to the nexus server; if none was specified this will
+     * return null;
+     */
+    public String getNexusUrl() {
+<span class="nc bnc" id="L803" title="All 4 branches missed.">        if (line == null || !line.hasOption(ARGUMENT.NEXUS_URL)) {</span>
+<span class="nc" id="L804">            return null;</span>
+        } else {
+<span class="nc" id="L806">            return line.getOptionValue(ARGUMENT.NEXUS_URL);</span>
+        }
+    }
+
+    /**
+     * Returns true if the Nexus Analyzer should use the configured proxy to
+     * connect to Nexus; otherwise false is returned.
+     *
+     * @return true if the Nexus Analyzer should use the configured proxy to
+     * connect to Nexus; otherwise false
+     */
+    public boolean isNexusUsesProxy() {
+        // If they didn't specify whether Nexus needs to use the proxy, we should
+        // still honor the property if it's set.
+<span class="nc bnc" id="L820" title="All 4 branches missed.">        if (line == null || !line.hasOption(ARGUMENT.NEXUS_USES_PROXY)) {</span>
+            try {
+<span class="nc" id="L822">                return settings.getBoolean(Settings.KEYS.ANALYZER_NEXUS_USES_PROXY);</span>
+<span class="nc" id="L823">            } catch (InvalidSettingException ise) {</span>
+<span class="nc" id="L824">                return true;</span>
+            }
+        } else {
+<span class="nc" id="L827">            return Boolean.parseBoolean(line.getOptionValue(ARGUMENT.NEXUS_USES_PROXY));</span>
+        }
+    }
+
+    /**
+     * Displays the command line help message to the standard output.
+     */
+    public void printHelp() {
+<span class="nc" id="L835">        final HelpFormatter formatter = new HelpFormatter();</span>
+<span class="nc" id="L836">        final Options options = new Options();</span>
+<span class="nc" id="L837">        addStandardOptions(options);</span>
+<span class="nc bnc" id="L838" title="All 4 branches missed.">        if (line != null &amp;&amp; line.hasOption(ARGUMENT.ADVANCED_HELP)) {</span>
+<span class="nc" id="L839">            addAdvancedOptions(options);</span>
+        }
+<span class="nc" id="L841">        final String helpMsg = String.format(&quot;%n%s&quot;</span>
+                + &quot; can be used to identify if there are any known CVE vulnerabilities in libraries utilized by an application. &quot;
+                + &quot;%s will automatically update required data from the Internet, such as the CVE and CPE data files from nvd.nist.gov.%n%n&quot;,
+                settings.getString(&quot;application.name&quot;, &quot;DependencyCheck&quot;),
+                settings.getString(&quot;application.name&quot;, &quot;DependencyCheck&quot;));
+
+<span class="nc" id="L847">        formatter.printHelp(settings.getString(&quot;application.name&quot;, &quot;DependencyCheck&quot;),</span>
+                helpMsg,
+                options,
+                &quot;&quot;,
+                true);
+<span class="nc" id="L852">    }</span>
+
+    /**
+     * Retrieves the file command line parameter(s) specified for the 'scan'
+     * argument.
+     *
+     * @return the file paths specified on the command line for scan
+     */
+    public String[] getScanFiles() {
+<span class="nc" id="L861">        return line.getOptionValues(ARGUMENT.SCAN);</span>
+    }
+
+    /**
+     * Retrieves the list of excluded file patterns specified by the 'exclude'
+     * argument.
+     *
+     * @return the excluded file patterns
+     */
+    public String[] getExcludeList() {
+<span class="nc" id="L871">        return line.getOptionValues(ARGUMENT.EXCLUDE);</span>
+    }
+
+    /**
+     * Returns the directory to write the reports to specified on the command
+     * line.
+     *
+     * @return the path to the reports directory.
+     */
+    public String getReportDirectory() {
+<span class="nc" id="L881">        return line.getOptionValue(ARGUMENT.OUT, &quot;.&quot;);</span>
+    }
+
+    /**
+     * Returns the path to Mono for .NET Assembly analysis on non-windows
+     * systems.
+     *
+     * @return the path to Mono
+     */
+    public String getPathToMono() {
+<span class="nc" id="L891">        return line.getOptionValue(ARGUMENT.PATH_TO_MONO);</span>
+    }
+
+    /**
+     * Returns the path to bundle-audit for Ruby bundle analysis.
+     *
+     * @return the path to Mono
+     */
+    public String getPathToBundleAudit() {
+<span class="nc" id="L900">        return line.getOptionValue(ARGUMENT.PATH_TO_BUNDLE_AUDIT);</span>
+    }
+
+    /**
+     * Returns the output format specified on the command line. Defaults to HTML
+     * if no format was specified.
+     *
+     * @return the output format name.
+     */
+    public String getReportFormat() {
+<span class="nc" id="L910">        return line.getOptionValue(ARGUMENT.OUTPUT_FORMAT, &quot;HTML&quot;);</span>
+    }
+
+    /**
+     * Returns the application name specified on the command line.
+     *
+     * @return the application name.
+     */
+    public String getProjectName() {
+<span class="nc" id="L919">        final String appName = line.getOptionValue(ARGUMENT.APP_NAME);</span>
+<span class="nc" id="L920">        String name = line.getOptionValue(ARGUMENT.PROJECT);</span>
+<span class="nc bnc" id="L921" title="All 4 branches missed.">        if (name == null &amp;&amp; appName != null) {</span>
+<span class="nc" id="L922">            name = appName;</span>
+<span class="nc" id="L923">            LOGGER.warn(&quot;The '{}' argument should no longer be used; use '{}' instead.&quot;, ARGUMENT.APP_NAME, ARGUMENT.PROJECT);</span>
+        }
+<span class="nc" id="L925">        return name;</span>
+    }
+
+    /**
+     * Returns the base URL for the CVE 1.2 XMl file.
+     *
+     * @return the URL to the CVE 1.2 XML file.
+     */
+    public String getBaseCve12Url() {
+<span class="nc" id="L934">        return line.getOptionValue(ARGUMENT.CVE_BASE_12);</span>
+    }
+
+    /**
+     * Returns the base URL for the CVE 2.0 XMl file.
+     *
+     * @return the URL to the CVE 2.0 XML file.
+     */
+    public String getBaseCve20Url() {
+<span class="nc" id="L943">        return line.getOptionValue(ARGUMENT.CVE_BASE_20);</span>
+    }
+
+    /**
+     * Returns the URL for the modified CVE 1.2 XMl file.
+     *
+     * @return the URL to the modified CVE 1.2 XML file.
+     */
+    public String getModifiedCve12Url() {
+<span class="nc" id="L952">        return line.getOptionValue(ARGUMENT.CVE_MOD_12);</span>
+    }
+
+    /**
+     * Returns the URL for the modified CVE 2.0 XMl file.
+     *
+     * @return the URL to the modified CVE 2.0 XML file.
+     */
+    public String getModifiedCve20Url() {
+<span class="nc" id="L961">        return line.getOptionValue(ARGUMENT.CVE_MOD_20);</span>
+    }
+
+    /**
+     * Returns the connection timeout.
+     *
+     * @return the connection timeout
+     */
+    public String getConnectionTimeout() {
+<span class="nc" id="L970">        return line.getOptionValue(ARGUMENT.CONNECTION_TIMEOUT);</span>
+    }
+
+    /**
+     * Returns the proxy server.
+     *
+     * @return the proxy server
+     */
+    @SuppressWarnings(&quot;deprecation&quot;)
+    public String getProxyServer() {
+
+<span class="nc" id="L981">        String server = line.getOptionValue(ARGUMENT.PROXY_SERVER);</span>
+<span class="nc bnc" id="L982" title="All 2 branches missed.">        if (server == null) {</span>
+<span class="nc" id="L983">            server = line.getOptionValue(ARGUMENT.PROXY_URL);</span>
+<span class="nc bnc" id="L984" title="All 2 branches missed.">            if (server != null) {</span>
+<span class="nc" id="L985">                LOGGER.warn(&quot;An old command line argument 'proxyurl' was detected; use proxyserver instead&quot;);</span>
+            }
+        }
+<span class="nc" id="L988">        return server;</span>
+    }
+
+    /**
+     * Returns the proxy port.
+     *
+     * @return the proxy port
+     */
+    public String getProxyPort() {
+<span class="nc" id="L997">        return line.getOptionValue(ARGUMENT.PROXY_PORT);</span>
+    }
+
+    /**
+     * Returns the proxy username.
+     *
+     * @return the proxy username
+     */
+    public String getProxyUsername() {
+<span class="nc" id="L1006">        return line.getOptionValue(ARGUMENT.PROXY_USERNAME);</span>
+    }
+
+    /**
+     * Returns the proxy password.
+     *
+     * @return the proxy password
+     */
+    public String getProxyPassword() {
+<span class="nc" id="L1015">        return line.getOptionValue(ARGUMENT.PROXY_PASSWORD);</span>
+    }
+
+    /**
+     * Get the value of dataDirectory.
+     *
+     * @return the value of dataDirectory
+     */
+    public String getDataDirectory() {
+<span class="nc" id="L1024">        return line.getOptionValue(ARGUMENT.DATA_DIRECTORY);</span>
+    }
+
+    /**
+     * Returns the properties file specified on the command line.
+     *
+     * @return the properties file specified on the command line
+     */
+    public File getPropertiesFile() {
+<span class="nc" id="L1033">        final String path = line.getOptionValue(ARGUMENT.PROP);</span>
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">        if (path != null) {</span>
+<span class="nc" id="L1035">            return new File(path);</span>
+        }
+<span class="nc" id="L1037">        return null;</span>
+    }
+
+    /**
+     * Returns the path to the verbose log file.
+     *
+     * @return the path to the verbose log file
+     */
+    public String getVerboseLog() {
+<span class="nc" id="L1046">        return line.getOptionValue(ARGUMENT.VERBOSE_LOG);</span>
+    }
+
+    /**
+     * Returns the paths to the suppression files.
+     *
+     * @return the paths to the suppression files.
+     */
+    public String[] getSuppressionFiles() {
+<span class="nc" id="L1055">        return line.getOptionValues(ARGUMENT.SUPPRESSION_FILES);</span>
+    }
+
+    /**
+     * Returns the path to the hints file.
+     *
+     * @return the path to the hints file
+     */
+    public String getHintsFile() {
+<span class="nc" id="L1064">        return line.getOptionValue(ARGUMENT.HINTS_FILE);</span>
+    }
+
+    /**
+     * &lt;p&gt;
+     * Prints the manifest information to standard output.&lt;/p&gt;
+     * &lt;ul&gt;&lt;li&gt;Implementation-Title: ${pom.name}&lt;/li&gt;
+     * &lt;li&gt;Implementation-Version: ${pom.version}&lt;/li&gt;&lt;/ul&gt;
+     */
+    public void printVersionInfo() {
+<span class="nc" id="L1074">        final String version = String.format(&quot;%s version %s&quot;,</span>
+                settings.getString(Settings.KEYS.APPLICATION_NAME, &quot;dependency-check&quot;),
+                settings.getString(Settings.KEYS.APPLICATION_VERSION, &quot;Unknown&quot;));
+<span class="nc" id="L1077">        System.out.println(version);</span>
+<span class="nc" id="L1078">    }</span>
+
+    /**
+     * Checks if the auto update feature has been disabled. If it has been
+     * disabled via the command line this will return false.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if auto-update is allowed; otherwise
+     * &lt;code&gt;null&lt;/code&gt;
+     */
+    public Boolean isAutoUpdate() {
+<span class="nc bnc" id="L1088" title="All 4 branches missed.">        return (line != null &amp;&amp; line.hasOption(ARGUMENT.DISABLE_AUTO_UPDATE)) ? false : null;</span>
+    }
+
+    /**
+     * Checks if the update only flag has been set.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if the update only flag has been set; otherwise
+     * &lt;code&gt;false&lt;/code&gt;.
+     */
+    public boolean isUpdateOnly() {
+<span class="nc bnc" id="L1098" title="All 4 branches missed.">        return line != null &amp;&amp; line.hasOption(ARGUMENT.UPDATE_ONLY);</span>
+    }
+
+    /**
+     * Checks if the purge NVD flag has been set.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if the purge nvd flag has been set; otherwise
+     * &lt;code&gt;false&lt;/code&gt;.
+     */
+    public boolean isPurge() {
+<span class="nc bnc" id="L1108" title="All 4 branches missed.">        return line != null &amp;&amp; line.hasOption(ARGUMENT.PURGE_NVD);</span>
+    }
+
+    /**
+     * Returns the database driver name if specified; otherwise null is
+     * returned.
+     *
+     * @return the database driver name if specified; otherwise null is returned
+     */
+    public String getDatabaseDriverName() {
+<span class="nc" id="L1118">        return line.getOptionValue(ARGUMENT.DB_DRIVER);</span>
+    }
+
+    /**
+     * Returns the database driver path if specified; otherwise null is
+     * returned.
+     *
+     * @return the database driver name if specified; otherwise null is returned
+     */
+    public String getDatabaseDriverPath() {
+<span class="nc" id="L1128">        return line.getOptionValue(ARGUMENT.DB_DRIVER_PATH);</span>
+    }
+
+    /**
+     * Returns the database connection string if specified; otherwise null is
+     * returned.
+     *
+     * @return the database connection string if specified; otherwise null is
+     * returned
+     */
+    public String getConnectionString() {
+<span class="nc" id="L1139">        return line.getOptionValue(ARGUMENT.CONNECTION_STRING);</span>
+    }
+
+    /**
+     * Returns the database database user name if specified; otherwise null is
+     * returned.
+     *
+     * @return the database database user name if specified; otherwise null is
+     * returned
+     */
+    public String getDatabaseUser() {
+<span class="nc" id="L1150">        return line.getOptionValue(ARGUMENT.DB_NAME);</span>
+    }
+
+    /**
+     * Returns the database database password if specified; otherwise null is
+     * returned.
+     *
+     * @return the database database password if specified; otherwise null is
+     * returned
+     */
+    public String getDatabasePassword() {
+<span class="nc" id="L1161">        return line.getOptionValue(ARGUMENT.DB_PASSWORD);</span>
+    }
+
+    /**
+     * Returns the additional Extensions if specified; otherwise null is
+     * returned.
+     *
+     * @return the additional Extensions; otherwise null is returned
+     */
+    public String getAdditionalZipExtensions() {
+<span class="nc" id="L1171">        return line.getOptionValue(ARGUMENT.ADDITIONAL_ZIP_EXTENSIONS);</span>
+    }
+
+    /**
+     * Get the value of cveValidForHours.
+     *
+     * @return the value of cveValidForHours
+     */
+    public Integer getCveValidForHours() {
+<span class="nc" id="L1180">        final String v = line.getOptionValue(ARGUMENT.CVE_VALID_FOR_HOURS);</span>
+<span class="nc bnc" id="L1181" title="All 2 branches missed.">        if (v != null) {</span>
+<span class="nc" id="L1182">            return Integer.parseInt(v);</span>
+        }
+<span class="nc" id="L1184">        return null;</span>
+    }
+
+    /**
+     * Returns true if the experimental analyzers are enabled.
+     *
+     * @return true if the experimental analyzers are enabled; otherwise null
+     */
+    public Boolean isExperimentalEnabled() {
+<span class="nc bnc" id="L1193" title="All 4 branches missed.">        return (line != null &amp;&amp; line.hasOption(ARGUMENT.EXPERIMENTAL)) ? true : null;</span>
+    }
+
+    /**
+     * Returns true if the retired analyzers are enabled.
+     *
+     * @return true if the retired analyzers are enabled; otherwise null
+     */
+    public Boolean isRetiredEnabled() {
+<span class="nc bnc" id="L1202" title="All 4 branches missed.">        return (line != null &amp;&amp; line.hasOption(ARGUMENT.RETIRED)) ? true : null;</span>
+    }
+
+    /**
+     * Returns the CVSS value to fail on.
+     *
+     * @return 11 if nothing is set. Otherwise it returns the int passed from
+     * the command line arg
+     */
+    public int getFailOnCVSS() {
+<span class="nc bnc" id="L1212" title="All 2 branches missed.">        if (line.hasOption(ARGUMENT.FAIL_ON_CVSS)) {</span>
+<span class="nc" id="L1213">            final String value = line.getOptionValue(ARGUMENT.FAIL_ON_CVSS);</span>
+            try {
+<span class="nc" id="L1215">                return Integer.parseInt(value);</span>
+<span class="nc" id="L1216">            } catch (NumberFormatException nfe) {</span>
+<span class="nc" id="L1217">                return 11;</span>
+            }
+        } else {
+<span class="nc" id="L1220">            return 11;</span>
+        }
+    }
+
+    /**
+     * A collection of static final strings that represent the possible command
+     * line arguments.
+     */
+<span class="nc" id="L1228">    public static class ARGUMENT {</span>
+
+        /**
+         * The long CLI argument name specifying the directory/file to scan.
+         */
+        public static final String SCAN = &quot;scan&quot;;
+        /**
+         * The short CLI argument name specifying the directory/file to scan.
+         */
+        public static final String SCAN_SHORT = &quot;s&quot;;
+        /**
+         * The long CLI argument name specifying that the CPE/CVE/etc. data
+         * should not be automatically updated.
+         */
+        public static final String DISABLE_AUTO_UPDATE = &quot;noupdate&quot;;
+        /**
+         * The short CLI argument name specifying that the CPE/CVE/etc. data
+         * should not be automatically updated.
+         */
+        public static final String DISABLE_AUTO_UPDATE_SHORT = &quot;n&quot;;
+        /**
+         * The long CLI argument name specifying that only the update phase
+         * should be executed; no scan should be run.
+         */
+        public static final String UPDATE_ONLY = &quot;updateonly&quot;;
+        /**
+         * The long CLI argument name specifying that only the update phase
+         * should be executed; no scan should be run.
+         */
+        public static final String PURGE_NVD = &quot;purge&quot;;
+        /**
+         * The long CLI argument name specifying the directory to write the
+         * reports to.
+         */
+        public static final String OUT = &quot;out&quot;;
+        /**
+         * The short CLI argument name specifying the directory to write the
+         * reports to.
+         */
+        public static final String OUT_SHORT = &quot;o&quot;;
+        /**
+         * The long CLI argument name specifying the output format to write the
+         * reports to.
+         */
+        public static final String OUTPUT_FORMAT = &quot;format&quot;;
+        /**
+         * The short CLI argument name specifying the output format to write the
+         * reports to.
+         */
+        public static final String OUTPUT_FORMAT_SHORT = &quot;f&quot;;
+        /**
+         * The long CLI argument name specifying the name of the project to be
+         * scanned.
+         */
+        public static final String PROJECT = &quot;project&quot;;
+        /**
+         * The long CLI argument name specifying the name of the application to
+         * be scanned.
+         *
+         * @deprecated project should be used instead
+         */
+        @Deprecated
+        public static final String APP_NAME = &quot;app&quot;;
+        /**
+         * The short CLI argument name specifying the name of the application to
+         * be scanned.
+         *
+         * @deprecated project should be used instead
+         */
+        @Deprecated
+        public static final String APP_NAME_SHORT = &quot;a&quot;;
+        /**
+         * The long CLI argument name asking for help.
+         */
+        public static final String HELP = &quot;help&quot;;
+        /**
+         * The long CLI argument name asking for advanced help.
+         */
+        public static final String ADVANCED_HELP = &quot;advancedHelp&quot;;
+        /**
+         * The short CLI argument name asking for help.
+         */
+        public static final String HELP_SHORT = &quot;h&quot;;
+        /**
+         * The long CLI argument name asking for the version.
+         */
+        public static final String VERSION_SHORT = &quot;v&quot;;
+        /**
+         * The short CLI argument name asking for the version.
+         */
+        public static final String VERSION = &quot;version&quot;;
+        /**
+         * The CLI argument name indicating the proxy port.
+         */
+        public static final String PROXY_PORT = &quot;proxyport&quot;;
+        /**
+         * The CLI argument name indicating the proxy server.
+         */
+        public static final String PROXY_SERVER = &quot;proxyserver&quot;;
+        /**
+         * The CLI argument name indicating the proxy url.
+         *
+         * @deprecated use {@link #PROXY_SERVER} instead
+         */
+        @Deprecated
+        public static final String PROXY_URL = &quot;proxyurl&quot;;
+        /**
+         * The CLI argument name indicating the proxy username.
+         */
+        public static final String PROXY_USERNAME = &quot;proxyuser&quot;;
+        /**
+         * The CLI argument name indicating the proxy password.
+         */
+        public static final String PROXY_PASSWORD = &quot;proxypass&quot;;
+        /**
+         * The short CLI argument name indicating the connection timeout.
+         */
+        public static final String CONNECTION_TIMEOUT_SHORT = &quot;c&quot;;
+        /**
+         * The CLI argument name indicating the connection timeout.
+         */
+        public static final String CONNECTION_TIMEOUT = &quot;connectiontimeout&quot;;
+        /**
+         * The short CLI argument name for setting the location of an additional
+         * properties file.
+         */
+        public static final String PROP_SHORT = &quot;P&quot;;
+        /**
+         * The CLI argument name for setting the location of an additional
+         * properties file.
+         */
+        public static final String PROP = &quot;propertyfile&quot;;
+        /**
+         * The CLI argument name for setting the location of the data directory.
+         */
+        public static final String DATA_DIRECTORY = &quot;data&quot;;
+        /**
+         * The CLI argument name for setting the URL for the CVE Data Files.
+         */
+        public static final String CVE_MOD_12 = &quot;cveUrl12Modified&quot;;
+        /**
+         * The CLI argument name for setting the URL for the CVE Data Files.
+         */
+        public static final String CVE_MOD_20 = &quot;cveUrl20Modified&quot;;
+        /**
+         * The CLI argument name for setting the URL for the CVE Data Files.
+         */
+        public static final String CVE_BASE_12 = &quot;cveUrl12Base&quot;;
+        /**
+         * The CLI argument name for setting the URL for the CVE Data Files.
+         */
+        public static final String CVE_BASE_20 = &quot;cveUrl20Base&quot;;
+        /**
+         * The short CLI argument name for setting the location of the data
+         * directory.
+         */
+        public static final String DATA_DIRECTORY_SHORT = &quot;d&quot;;
+        /**
+         * The CLI argument name for setting the location of the data directory.
+         */
+        public static final String VERBOSE_LOG = &quot;log&quot;;
+        /**
+         * The short CLI argument name for setting the location of the data
+         * directory.
+         */
+        public static final String VERBOSE_LOG_SHORT = &quot;l&quot;;
+
+        /**
+         * The CLI argument name for setting the depth of symbolic links that
+         * will be followed.
+         */
+        public static final String SYM_LINK_DEPTH = &quot;symLink&quot;;
+        /**
+         * The CLI argument name for setting the location of the suppression
+         * file(s).
+         */
+        public static final String SUPPRESSION_FILES = &quot;suppression&quot;;
+        /**
+         * The CLI argument name for setting the location of the hint file.
+         */
+        public static final String HINTS_FILE = &quot;hints&quot;;
+        /**
+         * The CLI argument name for setting the number of hours to wait before
+         * checking for new updates from the NVD.
+         */
+        public static final String CVE_VALID_FOR_HOURS = &quot;cveValidForHours&quot;;
+        /**
+         * Disables the Jar Analyzer.
+         */
+        public static final String DISABLE_JAR = &quot;disableJar&quot;;
+        /**
+         * Disables the Archive Analyzer.
+         */
+        public static final String DISABLE_ARCHIVE = &quot;disableArchive&quot;;
+        /**
+         * Disables the Python Distribution Analyzer.
+         */
+        public static final String DISABLE_PY_DIST = &quot;disablePyDist&quot;;
+        /**
+         * Disables the Python Package Analyzer.
+         */
+        public static final String DISABLE_PY_PKG = &quot;disablePyPkg&quot;;
+        /**
+         * Disables the Python Package Analyzer.
+         */
+        public static final String DISABLE_COMPOSER = &quot;disableComposer&quot;;
+        /**
+         * Disables the Ruby Gemspec Analyzer.
+         */
+        public static final String DISABLE_RUBYGEMS = &quot;disableRubygems&quot;;
+        /**
+         * Disables the Autoconf Analyzer.
+         */
+        public static final String DISABLE_AUTOCONF = &quot;disableAutoconf&quot;;
+        /**
+         * Disables the Cmake Analyzer.
+         */
+        public static final String DISABLE_CMAKE = &quot;disableCmake&quot;;
+        /**
+         * Disables the cocoapods analyzer.
+         */
+        public static final String DISABLE_COCOAPODS = &quot;disableCocoapodsAnalyzer&quot;;
+        /**
+         * Disables the swift package manager analyzer.
+         */
+        public static final String DISABLE_SWIFT = &quot;disableSwiftPackageManagerAnalyzer&quot;;
+        /**
+         * Disables the Assembly Analyzer.
+         */
+        public static final String DISABLE_ASSEMBLY = &quot;disableAssembly&quot;;
+        /**
+         * Disables the Ruby Bundler Audit Analyzer.
+         */
+        public static final String DISABLE_BUNDLE_AUDIT = &quot;disableBundleAudit&quot;;
+        /**
+         * Disables the Nuspec Analyzer.
+         */
+        public static final String DISABLE_NUSPEC = &quot;disableNuspec&quot;;
+        /**
+         * Disables the Central Analyzer.
+         */
+        public static final String DISABLE_CENTRAL = &quot;disableCentral&quot;;
+        /**
+         * Disables the Nexus Analyzer.
+         */
+        public static final String DISABLE_NEXUS = &quot;disableNexus&quot;;
+        /**
+         * Disables the OpenSSL Analyzer.
+         */
+        public static final String DISABLE_OPENSSL = &quot;disableOpenSSL&quot;;
+        /**
+         * Disables the Node.js Package Analyzer.
+         */
+        public static final String DISABLE_NODE_JS = &quot;disableNodeJS&quot;;
+        /**
+         * Disables the NSP Analyzer.
+         */
+        public static final String DISABLE_NSP = &quot;disableNSP&quot;;
+        /**
+         * The URL of the nexus server.
+         */
+        public static final String NEXUS_URL = &quot;nexus&quot;;
+        /**
+         * Whether or not the defined proxy should be used when connecting to
+         * Nexus.
+         */
+        public static final String NEXUS_USES_PROXY = &quot;nexusUsesProxy&quot;;
+        /**
+         * The CLI argument name for setting the connection string.
+         */
+        public static final String CONNECTION_STRING = &quot;connectionString&quot;;
+        /**
+         * The CLI argument name for setting the database user name.
+         */
+        public static final String DB_NAME = &quot;dbUser&quot;;
+        /**
+         * The CLI argument name for setting the database password.
+         */
+        public static final String DB_PASSWORD = &quot;dbPassword&quot;;
+        /**
+         * The CLI argument name for setting the database driver name.
+         */
+        public static final String DB_DRIVER = &quot;dbDriverName&quot;;
+        /**
+         * The CLI argument name for setting the path to the database driver; in
+         * case it is not on the class path.
+         */
+        public static final String DB_DRIVER_PATH = &quot;dbDriverPath&quot;;
+        /**
+         * The CLI argument name for setting the path to mono for .NET Assembly
+         * analysis on non-windows systems.
+         */
+        public static final String PATH_TO_MONO = &quot;mono&quot;;
+        /**
+         * The CLI argument name for setting extra extensions.
+         */
+        public static final String ADDITIONAL_ZIP_EXTENSIONS = &quot;zipExtensions&quot;;
+        /**
+         * Exclude path argument.
+         */
+        public static final String EXCLUDE = &quot;exclude&quot;;
+        /**
+         * The CLI argument name for setting the path to bundle-audit for Ruby
+         * bundle analysis.
+         */
+        public static final String PATH_TO_BUNDLE_AUDIT = &quot;bundleAudit&quot;;
+        /**
+         * The CLI argument to enable the experimental analyzers.
+         */
+        private static final String EXPERIMENTAL = &quot;enableExperimental&quot;;
+        /**
+         * The CLI argument to enable the retired analyzers.
+         */
+        private static final String RETIRED = &quot;enableRetired&quot;;
+        /**
+         * The CLI argument to enable the experimental analyzers.
+         */
+        private static final String FAIL_ON_CVSS = &quot;failOnCVSS&quot;;
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.7.9.201702052155</span></div></body></html>

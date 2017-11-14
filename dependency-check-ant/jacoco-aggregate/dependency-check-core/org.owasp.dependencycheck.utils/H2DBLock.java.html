@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>H2DBLock.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Dependency-Check Ant Task</a> &gt; <a href="../index.html" class="el_bundle">dependency-check-core</a> &gt; <a href="index.source.html" class="el_package">org.owasp.dependencycheck.utils</a> &gt; <span class="el_source">H2DBLock.java</span></div><h1>H2DBLock.java</h1><pre class="source lang-java linenums">/*
+ * This file is part of dependency-check-core.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Copyright (c) 2017 Jeremy Long. All Rights Reserved.
+ */
+package org.owasp.dependencycheck.utils;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileLock;
+import java.security.SecureRandom;
+import java.sql.Timestamp;
+import java.util.Date;
+import javax.annotation.concurrent.NotThreadSafe;
+import org.owasp.dependencycheck.exception.H2DBLockException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ *
+ * @author Jeremy Long
+ */
+@NotThreadSafe
+public class H2DBLock {
+
+    /**
+     * The logger.
+     */
+<span class="fc" id="L42">    private static final Logger LOGGER = LoggerFactory.getLogger(H2DBLock.class);</span>
+    /**
+     * How long to sleep waiting for the lock.
+     */
+    public static final int SLEEP_DURATION = 10000;
+    /**
+     * Max attempts to obtain a lock.
+     */
+    public static final int MAX_SLEEP_COUNT = 120;
+    /**
+     * The file lock.
+     */
+<span class="fc" id="L54">    private FileLock lock = null;</span>
+    /**
+     * Reference to the file that we are locking.
+     */
+<span class="fc" id="L58">    private RandomAccessFile file = null;</span>
+    /**
+     * The lock file.
+     */
+<span class="fc" id="L62">    private File lockFile = null;</span>
+    /**
+     * The configured settings.
+     */
+    private final Settings settings;
+    /**
+     * A random string used to validate the lock.
+     */
+    private final String magic;
+
+    /**
+     * Constructs a new H2DB Lock object with the configured settings.
+     *
+     * @param settings the configured settings
+     */
+<span class="fc" id="L77">    public H2DBLock(Settings settings) {</span>
+<span class="fc" id="L78">        this.settings = settings;</span>
+<span class="fc" id="L79">        final byte[] random = new byte[16];</span>
+<span class="fc" id="L80">        final SecureRandom gen = new SecureRandom();</span>
+<span class="fc" id="L81">        gen.nextBytes(random);</span>
+<span class="fc" id="L82">        magic = Checksum.getHex(random);</span>
+<span class="fc" id="L83">    }</span>
+
+    /**
+     * Determine if the lock is currently held.
+     *
+     * @return true if the lock is currently held
+     */
+    public boolean isLocked() {
+<span class="nc bnc" id="L91" title="All 4 branches missed.">        return lock != null &amp;&amp; lock.isValid();</span>
+    }
+
+    /**
+     * Obtains a lock on the H2 database.
+     *
+     * @throws H2DBLockException thrown if a lock could not be obtained
+     */
+    public void lock() throws H2DBLockException {
+        try {
+<span class="fc" id="L101">            final File dir = settings.getDataDirectory();</span>
+<span class="fc" id="L102">            lockFile = new File(dir, &quot;dc.update.lock&quot;);</span>
+<span class="pc bpc" id="L103" title="3 of 4 branches missed.">            if (!lockFile.getParentFile().isDirectory() &amp;&amp; !lockFile.mkdir()) {</span>
+<span class="nc" id="L104">                throw new H2DBLockException(&quot;Unable to create path to data directory.&quot;);</span>
+            }
+<span class="pc bpc" id="L106" title="3 of 4 branches missed.">            if (lockFile.isFile() &amp;&amp; getFileAge(lockFile) &gt; 30) {</span>
+<span class="nc" id="L107">                LOGGER.debug(&quot;An old db update lock file was found: {}&quot;, lockFile.getAbsolutePath());</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">                if (!lockFile.delete()) {</span>
+<span class="nc" id="L109">                    LOGGER.warn(&quot;An old db update lock file was found but the system was unable to delete &quot;</span>
+                            + &quot;the file. Consider manually deleting {}&quot;, lockFile.getAbsolutePath());
+                }
+            }
+<span class="fc" id="L113">            int ctr = 0;</span>
+            do {
+                try {
+<span class="pc bpc" id="L116" title="2 of 4 branches missed.">                    if (!lockFile.exists() &amp;&amp; lockFile.createNewFile()) {</span>
+<span class="fc" id="L117">                        file = new RandomAccessFile(lockFile, &quot;rw&quot;);</span>
+<span class="fc" id="L118">                        lock = file.getChannel().lock();</span>
+<span class="fc" id="L119">                        file.writeBytes(magic);</span>
+<span class="fc" id="L120">                        file.getChannel().force(true);</span>
+<span class="fc" id="L121">                        Thread.sleep(20);</span>
+<span class="fc" id="L122">                        file.seek(0);</span>
+<span class="fc" id="L123">                        final String current = file.readLine();</span>
+<span class="pc bpc" id="L124" title="2 of 4 branches missed.">                        if (current != null &amp;&amp; !current.equals(magic)) {</span>
+<span class="nc" id="L125">                            lock.close();</span>
+<span class="nc" id="L126">                            lock = null;</span>
+<span class="nc" id="L127">                            LOGGER.debug(&quot;Another process obtained a lock first ({})&quot;, Thread.currentThread().getName());</span>
+                        } else {
+<span class="fc" id="L129">                            final Timestamp timestamp = new Timestamp(System.currentTimeMillis());</span>
+<span class="fc" id="L130">                            LOGGER.debug(&quot;Lock file created ({}) {} @ {}&quot;, Thread.currentThread().getName(), magic, timestamp.toString());</span>
+                        }
+                    }
+<span class="nc" id="L133">                } catch (IOException | InterruptedException ex) {</span>
+<span class="nc" id="L134">                    LOGGER.trace(&quot;Expected error as another thread has likely locked the file&quot;, ex);</span>
+                } finally {
+<span class="pc bpc" id="L136" title="11 of 12 branches missed.">                    if (lock == null &amp;&amp; file != null) {</span>
+                        try {
+<span class="nc" id="L138">                            file.close();</span>
+<span class="nc" id="L139">                            file = null;</span>
+<span class="nc" id="L140">                        } catch (IOException ex) {</span>
+<span class="nc" id="L141">                            LOGGER.trace(&quot;Unable to close the lock file&quot;, ex);</span>
+<span class="nc" id="L142">                        }</span>
+                    }
+                }
+<span class="pc bpc" id="L145" title="2 of 4 branches missed.">                if (lock == null || !lock.isValid()) {</span>
+                    try {
+<span class="nc" id="L147">                        final Timestamp timestamp = new Timestamp(System.currentTimeMillis());</span>
+<span class="nc" id="L148">                        LOGGER.debug(&quot;Sleeping thread {} ({}) for 10 seconds because an exclusive lock on the database could not be obtained ({})&quot;,</span>
+                                Thread.currentThread().getName(), magic, timestamp.toString());
+<span class="nc" id="L150">                        Thread.sleep(SLEEP_DURATION);</span>
+<span class="nc" id="L151">                    } catch (InterruptedException ex) {</span>
+<span class="nc" id="L152">                        LOGGER.debug(&quot;sleep was interrupted.&quot;, ex);</span>
+<span class="nc" id="L153">                        Thread.currentThread().interrupt();</span>
+<span class="nc" id="L154">                    }</span>
+                }
+<span class="pc bpc" id="L156" title="3 of 6 branches missed.">            } while (++ctr &lt; MAX_SLEEP_COUNT &amp;&amp; (lock == null || !lock.isValid()));</span>
+<span class="pc bpc" id="L157" title="2 of 4 branches missed.">            if (lock == null || !lock.isValid()) {</span>
+<span class="nc" id="L158">                throw new H2DBLockException(&quot;Unable to obtain the update lock, skipping the database update. Skippinig the database update.&quot;);</span>
+            }
+<span class="nc" id="L160">        } catch (IOException ex) {</span>
+<span class="nc" id="L161">            throw new H2DBLockException(ex.getMessage(), ex);</span>
+<span class="fc" id="L162">        }</span>
+<span class="fc" id="L163">    }</span>
+
+    /**
+     * Releases the lock on the H2 database.
+     */
+    public void release() {
+<span class="pc bpc" id="L169" title="1 of 2 branches missed.">        if (lock != null) {</span>
+            try {
+<span class="fc" id="L171">                lock.release();</span>
+<span class="fc" id="L172">                lock = null;</span>
+<span class="nc" id="L173">            } catch (IOException ex) {</span>
+<span class="nc" id="L174">                LOGGER.debug(&quot;Failed to release lock&quot;, ex);</span>
+<span class="fc" id="L175">            }</span>
+        }
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">        if (file != null) {</span>
+            try {
+<span class="fc" id="L179">                file.close();</span>
+<span class="fc" id="L180">                file = null;</span>
+<span class="nc" id="L181">            } catch (IOException ex) {</span>
+<span class="nc" id="L182">                LOGGER.debug(&quot;Unable to delete lock file&quot;, ex);</span>
+<span class="fc" id="L183">            }</span>
+        }
+<span class="pc bpc" id="L185" title="2 of 4 branches missed.">        if (lockFile != null &amp;&amp; lockFile.isFile()) {</span>
+<span class="pc" id="L186">            try (RandomAccessFile f = new RandomAccessFile(lockFile, &quot;rw&quot;)) {</span>
+<span class="fc" id="L187">                final String m = f.readLine();</span>
+                //yes, we are explicitly calling close on an auto-closable object - this is so we can delete the file.
+<span class="fc" id="L189">                f.close();</span>
+<span class="pc bpc" id="L190" title="3 of 6 branches missed.">                if (m != null &amp;&amp; m.equals(magic) &amp;&amp; !lockFile.delete()) {</span>
+<span class="nc" id="L191">                    LOGGER.error(&quot;Lock file '{}' was unable to be deleted. Please manually delete this file.&quot;, lockFile.toString());</span>
+<span class="nc" id="L192">                    lockFile.deleteOnExit();</span>
+                }
+<span class="pc bpc" id="L194" title="6 of 8 branches missed.">            } catch (IOException ex) {</span>
+<span class="nc" id="L195">                LOGGER.debug(&quot;Error deleting lock file&quot;, ex);</span>
+<span class="fc" id="L196">            }</span>
+        }
+<span class="fc" id="L198">        lockFile = null;</span>
+<span class="fc" id="L199">        final Timestamp timestamp = new Timestamp(System.currentTimeMillis());</span>
+<span class="fc" id="L200">        LOGGER.debug(&quot;Lock released ({}) {} @ {}&quot;, Thread.currentThread().getName(), magic, timestamp.toString());</span>
+<span class="fc" id="L201">    }</span>
+
+    /**
+     * Returns the age of the file in minutes.
+     *
+     * @param file the file to calculate the age
+     * @return the age of the file
+     */
+    private double getFileAge(File file) {
+<span class="nc" id="L210">        final Date d = new Date();</span>
+<span class="nc" id="L211">        final long modified = file.lastModified();</span>
+<span class="nc" id="L212">        final double time = (d.getTime() - modified) / 1000.0 / 60.0;</span>
+<span class="nc" id="L213">        LOGGER.debug(&quot;Lock file age is {} minutes&quot;, time);</span>
+<span class="nc" id="L214">        return time;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.7.9.201702052155</span></div></body></html>

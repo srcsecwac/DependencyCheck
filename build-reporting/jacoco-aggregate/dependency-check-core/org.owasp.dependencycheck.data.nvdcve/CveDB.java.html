@@ -1,0 +1,1010 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>CveDB.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Dependency-Check Build-Reporting</a> &gt; <a href="../index.html" class="el_bundle">dependency-check-core</a> &gt; <a href="index.source.html" class="el_package">org.owasp.dependencycheck.data.nvdcve</a> &gt; <span class="el_source">CveDB.java</span></div><h1>CveDB.java</h1><pre class="source lang-java linenums">/*
+ * This file is part of dependency-check-core.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Copyright (c) 2012 Jeremy Long. All Rights Reserved.
+ */
+package org.owasp.dependencycheck.data.nvdcve;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.MissingResourceException;
+import java.util.Properties;
+import java.util.ResourceBundle;
+import java.util.Set;
+import javax.annotation.concurrent.ThreadSafe;
+import org.apache.commons.collections.map.ReferenceMap;
+import org.owasp.dependencycheck.data.cwe.CweDB;
+import org.owasp.dependencycheck.dependency.Reference;
+import org.owasp.dependencycheck.dependency.Vulnerability;
+import org.owasp.dependencycheck.dependency.VulnerableSoftware;
+import org.owasp.dependencycheck.utils.DBUtils;
+import org.owasp.dependencycheck.utils.DependencyVersion;
+import org.owasp.dependencycheck.utils.DependencyVersionUtil;
+import org.owasp.dependencycheck.utils.Pair;
+import org.owasp.dependencycheck.utils.Settings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+//CSOFF: AvoidStarImport
+import static org.owasp.dependencycheck.data.nvdcve.CveDB.PreparedStatementCveDb.*;
+//CSON: AvoidStarImport
+import static org.apache.commons.collections.map.AbstractReferenceMap.HARD;
+import static org.apache.commons.collections.map.AbstractReferenceMap.SOFT;
+
+/**
+ * The database holding information about the NVD CVE data. This class is safe
+ * to be accessed from multiple threads in parallel, however internally only one
+ * connection will be used.
+ *
+ * @author Jeremy Long
+ */
+@ThreadSafe
+public final class CveDB implements AutoCloseable {
+
+    /**
+     * The logger.
+     */
+<span class="fc" id="L72">    private static final Logger LOGGER = LoggerFactory.getLogger(CveDB.class);</span>
+    /**
+     * The database connection factory.
+     */
+    private final ConnectionFactory connectionFactory;
+    /**
+     * Database connection
+     */
+    private Connection connection;
+    /**
+     * The bundle of statements used when accessing the database.
+     */
+    private ResourceBundle statementBundle;
+    /**
+     * Database properties object containing the 'properties' from the database
+     * table.
+     */
+    private DatabaseProperties databaseProperties;
+    /**
+     * The prepared statements.
+     */
+<span class="fc" id="L93">    private final EnumMap&lt;PreparedStatementCveDb, PreparedStatement&gt; preparedStatements = new EnumMap&lt;&gt;(PreparedStatementCveDb.class);</span>
+
+    /**
+     * Cache for CVE lookups; used to speed up the vulnerability search process.
+     */
+<span class="fc" id="L98">    @SuppressWarnings(&quot;unchecked&quot;)</span>
+    private final Map&lt;String, List&lt;Vulnerability&gt;&gt; vulnerabilitiesForCpeCache = Collections.synchronizedMap(new ReferenceMap(HARD, SOFT));
+    /**
+     * The configured settings
+     */
+    private final Settings settings;
+
+    /**
+     * The enum value names must match the keys of the statements in the
+     * statement bundles &quot;dbStatements*.properties&quot;.
+     */
+<span class="pc" id="L109">    enum PreparedStatementCveDb {</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L113">        CLEANUP_ORPHANS,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L117">        COUNT_CPE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L121">        DELETE_REFERENCE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L125">        DELETE_SOFTWARE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L129">        DELETE_VULNERABILITY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L133">        INSERT_CPE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L137">        INSERT_PROPERTY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L141">        INSERT_REFERENCE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L145">        INSERT_SOFTWARE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L149">        INSERT_VULNERABILITY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L153">        MERGE_PROPERTY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L157">        SELECT_CPE_ENTRIES,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L161">        SELECT_CPE_ID,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L165">        SELECT_CVE_FROM_SOFTWARE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L169">        SELECT_PROPERTIES,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L173">        SELECT_REFERENCES,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L177">        SELECT_SOFTWARE,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L181">        SELECT_VENDOR_PRODUCT_LIST,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L185">        SELECT_VULNERABILITY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L189">        SELECT_VULNERABILITY_ID,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L193">        UPDATE_PROPERTY,</span>
+        /**
+         * Key for SQL Statement.
+         */
+<span class="fc" id="L197">        UPDATE_VULNERABILITY</span>
+    }
+
+    /**
+     * Creates a new CveDB object and opens the database connection. Note, the
+     * connection must be closed by the caller by calling the close method.
+     *
+     * @param settings the configured settings
+     * @throws DatabaseException thrown if there is an exception opening the
+     * database.
+     */
+<span class="fc" id="L208">    public CveDB(Settings settings) throws DatabaseException {</span>
+<span class="fc" id="L209">        this.settings = settings;</span>
+<span class="fc" id="L210">        connectionFactory = new ConnectionFactory(settings);</span>
+<span class="fc" id="L211">        open();</span>
+<span class="fc" id="L212">    }</span>
+
+    /**
+     * Tries to determine the product name of the database.
+     *
+     * @param conn the database connection
+     * @return the product name of the database if successful, {@code null} else
+     */
+    private String determineDatabaseProductName(Connection conn) {
+        try {
+<span class="fc" id="L222">            final String databaseProductName = conn.getMetaData().getDatabaseProductName().toLowerCase();</span>
+<span class="fc" id="L223">            LOGGER.debug(&quot;Database product: {}&quot;, databaseProductName);</span>
+<span class="fc" id="L224">            return databaseProductName;</span>
+<span class="nc" id="L225">        } catch (SQLException se) {</span>
+<span class="nc" id="L226">            LOGGER.warn(&quot;Problem determining database product!&quot;, se);</span>
+<span class="nc" id="L227">            return null;</span>
+        }
+    }
+
+    /**
+     * Opens the database connection. If the database does not exist, it will
+     * create a new one.
+     *
+     * @throws DatabaseException thrown if there is an error opening the
+     * database connection
+     */
+    private synchronized void open() throws DatabaseException {
+        try {
+<span class="pc bpc" id="L240" title="1 of 2 branches missed.">            if (!isOpen()) {</span>
+<span class="fc" id="L241">                connection = connectionFactory.getConnection();</span>
+<span class="fc" id="L242">                final String databaseProductName = determineDatabaseProductName(this.connection);</span>
+<span class="pc bpc" id="L243" title="1 of 2 branches missed.">                statementBundle = databaseProductName != null</span>
+                        ? ResourceBundle.getBundle(&quot;data/dbStatements&quot;, new Locale(databaseProductName))
+                        : ResourceBundle.getBundle(&quot;data/dbStatements&quot;);
+<span class="fc" id="L246">                prepareStatements();</span>
+<span class="fc" id="L247">                databaseProperties = new DatabaseProperties(this);</span>
+            }
+<span class="nc" id="L249">        } catch (DatabaseException e) {</span>
+<span class="nc" id="L250">            releaseResources();</span>
+<span class="nc" id="L251">            throw e;</span>
+<span class="fc" id="L252">        }</span>
+<span class="fc" id="L253">    }</span>
+
+    /**
+     * Closes the database connection. Close should be called on this object
+     * when it is done being used.
+     */
+    @Override
+    public synchronized void close() {
+<span class="fc bfc" id="L261" title="All 2 branches covered.">        if (isOpen()) {</span>
+<span class="fc" id="L262">            clearCache();</span>
+<span class="fc" id="L263">            closeStatements();</span>
+            try {
+<span class="fc" id="L265">                connection.close();</span>
+<span class="nc" id="L266">            } catch (SQLException ex) {</span>
+<span class="nc" id="L267">                LOGGER.error(&quot;There was an error attempting to close the CveDB, see the log for more details.&quot;);</span>
+<span class="nc" id="L268">                LOGGER.debug(&quot;&quot;, ex);</span>
+<span class="nc" id="L269">            } catch (Throwable ex) {</span>
+<span class="nc" id="L270">                LOGGER.error(&quot;There was an exception attempting to close the CveDB, see the log for more details.&quot;);</span>
+<span class="nc" id="L271">                LOGGER.debug(&quot;&quot;, ex);</span>
+<span class="pc" id="L272">            }</span>
+<span class="fc" id="L273">            releaseResources();</span>
+<span class="fc" id="L274">            connectionFactory.cleanup();</span>
+        }
+<span class="fc" id="L276">    }</span>
+
+    /**
+     * Releases the resources used by CveDB.
+     */
+    private synchronized void releaseResources() {
+<span class="fc" id="L282">        statementBundle = null;</span>
+<span class="fc" id="L283">        preparedStatements.clear();</span>
+<span class="fc" id="L284">        databaseProperties = null;</span>
+<span class="fc" id="L285">        connection = null;</span>
+<span class="fc" id="L286">    }</span>
+
+    /**
+     * Returns whether the database connection is open or closed.
+     *
+     * @return whether the database connection is open or closed
+     */
+    protected synchronized boolean isOpen() {
+<span class="fc bfc" id="L294" title="All 2 branches covered.">        return connection != null;</span>
+    }
+
+    /**
+     * Prepares all statements to be used.
+     *
+     * @throws DatabaseException thrown if there is an error preparing the
+     * statements
+     */
+    private void prepareStatements() throws DatabaseException {
+<span class="fc bfc" id="L304" title="All 2 branches covered.">        for (PreparedStatementCveDb key : values()) {</span>
+<span class="fc" id="L305">            PreparedStatement preparedStatement = null;</span>
+            try {
+<span class="fc" id="L307">                final String statementString = statementBundle.getString(key.name());</span>
+<span class="fc bfc" id="L308" title="All 4 branches covered.">                if (key == INSERT_VULNERABILITY || key == INSERT_CPE) {</span>
+<span class="fc" id="L309">                    preparedStatement = connection.prepareStatement(statementString, new String[]{&quot;id&quot;});</span>
+                } else {
+<span class="fc" id="L311">                    preparedStatement = connection.prepareStatement(statementString);</span>
+                }
+<span class="nc" id="L313">            } catch (SQLException ex) {</span>
+<span class="nc" id="L314">                throw new DatabaseException(ex);</span>
+<span class="nc" id="L315">            } catch (MissingResourceException ex) {</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                if (!ex.getMessage().contains(&quot;key MERGE_PROPERTY&quot;)) {</span>
+<span class="nc" id="L317">                    throw new DatabaseException(ex);</span>
+                }
+<span class="fc" id="L319">            }</span>
+<span class="pc bpc" id="L320" title="1 of 2 branches missed.">            if (preparedStatement != null) {</span>
+<span class="fc" id="L321">                preparedStatements.put(key, preparedStatement);</span>
+            }
+        }
+<span class="fc" id="L324">    }</span>
+
+    /**
+     * Closes all prepared statements.
+     */
+    private synchronized void closeStatements() {
+<span class="fc bfc" id="L330" title="All 2 branches covered.">        for (PreparedStatement preparedStatement : preparedStatements.values()) {</span>
+<span class="fc" id="L331">            DBUtils.closeStatement(preparedStatement);</span>
+<span class="fc" id="L332">        }</span>
+<span class="fc" id="L333">    }</span>
+
+    /**
+     * Returns the specified prepared statement.
+     *
+     * @param key the prepared statement from {@link PreparedStatementCveDb} to
+     * return
+     * @return the prepared statement
+     * @throws SQLException thrown if a SQL Exception occurs
+     */
+    private synchronized PreparedStatement getPreparedStatement(PreparedStatementCveDb key) throws SQLException {
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">        if (!preparedStatements.containsKey(key)) {</span>
+<span class="nc" id="L345">            return null;</span>
+        }
+<span class="fc" id="L347">        final PreparedStatement preparedStatement = preparedStatements.get(key);</span>
+<span class="fc" id="L348">        preparedStatement.clearParameters();</span>
+<span class="fc" id="L349">        return preparedStatement;</span>
+    }
+
+    /**
+     * Commits all completed transactions.
+     *
+     * @throws SQLException thrown if a SQL Exception occurs
+     */
+    @SuppressWarnings(&quot;EmptyMethod&quot;)
+    public synchronized void commit() throws SQLException {
+        //temporary remove this as autocommit is on.
+        //if (isOpen()) {
+        //    connection.commit();
+        //}
+<span class="fc" id="L363">    }</span>
+
+    /**
+     * Cleans up the object and ensures that &quot;close&quot; has been called.
+     *
+     * @throws Throwable thrown if there is a problem
+     */
+    @Override
+    @SuppressWarnings(&quot;FinalizeDeclaration&quot;)
+    protected void finalize() throws Throwable {
+<span class="fc" id="L373">        LOGGER.debug(&quot;Entering finalize&quot;);</span>
+<span class="fc" id="L374">        close();</span>
+<span class="fc" id="L375">        super.finalize();</span>
+<span class="fc" id="L376">    }</span>
+
+    /**
+     * Get the value of databaseProperties.
+     *
+     * @return the value of databaseProperties
+     */
+    public synchronized DatabaseProperties getDatabaseProperties() {
+<span class="fc" id="L384">        return databaseProperties;</span>
+    }
+
+    /**
+     * Used within the unit tests to reload the database properties.
+     *
+     * @return the database properties
+     */
+    protected synchronized DatabaseProperties reloadProperties() {
+<span class="fc" id="L393">        databaseProperties = new DatabaseProperties(this);</span>
+<span class="fc" id="L394">        return databaseProperties;</span>
+    }
+
+    /**
+     * Searches the CPE entries in the database and retrieves all entries for a
+     * given vendor and product combination. The returned list will include all
+     * versions of the product that are registered in the NVD CVE data.
+     *
+     * @param vendor the identified vendor name of the dependency being analyzed
+     * @param product the identified name of the product of the dependency being
+     * analyzed
+     * @return a set of vulnerable software
+     */
+    public synchronized Set&lt;VulnerableSoftware&gt; getCPEs(String vendor, String product) {
+<span class="fc" id="L408">        final Set&lt;VulnerableSoftware&gt; cpe = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L409">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L411">            final PreparedStatement ps = getPreparedStatement(SELECT_CPE_ENTRIES);</span>
+<span class="fc" id="L412">            ps.setString(1, vendor);</span>
+<span class="fc" id="L413">            ps.setString(2, product);</span>
+<span class="fc" id="L414">            rs = ps.executeQuery();</span>
+
+<span class="fc bfc" id="L416" title="All 2 branches covered.">            while (rs.next()) {</span>
+<span class="fc" id="L417">                final VulnerableSoftware vs = new VulnerableSoftware();</span>
+<span class="fc" id="L418">                vs.setCpe(rs.getString(1));</span>
+<span class="fc" id="L419">                cpe.add(vs);</span>
+<span class="fc" id="L420">            }</span>
+<span class="nc" id="L421">        } catch (SQLException ex) {</span>
+<span class="nc" id="L422">            LOGGER.error(&quot;An unexpected SQL Exception occurred; please see the verbose log for more details.&quot;);</span>
+<span class="nc" id="L423">            LOGGER.debug(&quot;&quot;, ex);</span>
+        } finally {
+<span class="pc" id="L425">            DBUtils.closeResultSet(rs);</span>
+<span class="pc" id="L426">        }</span>
+<span class="fc" id="L427">        return cpe;</span>
+    }
+
+    /**
+     * Returns the entire list of vendor/product combinations.
+     *
+     * @return the entire list of vendor/product combinations
+     * @throws DatabaseException thrown when there is an error retrieving the
+     * data from the DB
+     */
+    public synchronized Set&lt;Pair&lt;String, String&gt;&gt; getVendorProductList() throws DatabaseException {
+<span class="fc" id="L438">        final Set&lt;Pair&lt;String, String&gt;&gt; data = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L439">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L441">            final PreparedStatement ps = getPreparedStatement(SELECT_VENDOR_PRODUCT_LIST);</span>
+<span class="fc" id="L442">            rs = ps.executeQuery();</span>
+<span class="fc bfc" id="L443" title="All 2 branches covered.">            while (rs.next()) {</span>
+<span class="fc" id="L444">                data.add(new Pair&lt;&gt;(rs.getString(1), rs.getString(2)));</span>
+            }
+<span class="nc" id="L446">        } catch (SQLException ex) {</span>
+<span class="nc" id="L447">            final String msg = &quot;An unexpected SQL Exception occurred; please see the verbose log for more details.&quot;;</span>
+<span class="nc" id="L448">            throw new DatabaseException(msg, ex);</span>
+        } finally {
+<span class="pc" id="L450">            DBUtils.closeResultSet(rs);</span>
+<span class="fc" id="L451">        }</span>
+<span class="fc" id="L452">        return data;</span>
+    }
+
+    /**
+     * Returns a set of properties.
+     *
+     * @return the properties from the database
+     */
+    public synchronized Properties getProperties() {
+<span class="fc" id="L461">        final Properties prop = new Properties();</span>
+<span class="fc" id="L462">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L464">            final PreparedStatement ps = getPreparedStatement(SELECT_PROPERTIES);</span>
+<span class="fc" id="L465">            rs = ps.executeQuery();</span>
+<span class="fc bfc" id="L466" title="All 2 branches covered.">            while (rs.next()) {</span>
+<span class="fc" id="L467">                prop.setProperty(rs.getString(1), rs.getString(2));</span>
+            }
+<span class="nc" id="L469">        } catch (SQLException ex) {</span>
+<span class="nc" id="L470">            LOGGER.error(&quot;An unexpected SQL Exception occurred; please see the verbose log for more details.&quot;);</span>
+<span class="nc" id="L471">            LOGGER.debug(&quot;&quot;, ex);</span>
+        } finally {
+<span class="pc" id="L473">            DBUtils.closeResultSet(rs);</span>
+<span class="pc" id="L474">        }</span>
+<span class="fc" id="L475">        return prop;</span>
+    }
+
+    /**
+     * Saves a property to the database.
+     *
+     * @param key the property key
+     * @param value the property value
+     */
+    public synchronized void saveProperty(String key, String value) {
+<span class="fc" id="L485">        clearCache();</span>
+        try {
+<span class="fc" id="L487">            final PreparedStatement mergeProperty = getPreparedStatement(MERGE_PROPERTY);</span>
+<span class="pc bpc" id="L488" title="1 of 2 branches missed.">            if (mergeProperty != null) {</span>
+<span class="fc" id="L489">                mergeProperty.setString(1, key);</span>
+<span class="fc" id="L490">                mergeProperty.setString(2, value);</span>
+<span class="fc" id="L491">                mergeProperty.execute();</span>
+            } else {
+                // No Merge statement, so doing an Update/Insert...
+<span class="nc" id="L494">                final PreparedStatement updateProperty = getPreparedStatement(UPDATE_PROPERTY);</span>
+<span class="nc" id="L495">                updateProperty.setString(1, value);</span>
+<span class="nc" id="L496">                updateProperty.setString(2, key);</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">                if (updateProperty.executeUpdate() == 0) {</span>
+<span class="nc" id="L498">                    final PreparedStatement insertProperty = getPreparedStatement(INSERT_PROPERTY);</span>
+<span class="nc" id="L499">                    insertProperty.setString(1, key);</span>
+<span class="nc" id="L500">                    insertProperty.setString(2, value);</span>
+<span class="nc" id="L501">                    insertProperty.executeUpdate();</span>
+                }
+            }
+<span class="nc" id="L504">        } catch (SQLException ex) {</span>
+<span class="nc" id="L505">            LOGGER.warn(&quot;Unable to save property '{}' with a value of '{}' to the database&quot;, key, value);</span>
+<span class="nc" id="L506">            LOGGER.debug(&quot;&quot;, ex);</span>
+<span class="fc" id="L507">        }</span>
+<span class="fc" id="L508">    }</span>
+
+    /**
+     * Clears cache. Should be called whenever something is modified. While this
+     * is not the optimal cache eviction strategy, this is good enough for
+     * typical usage (update DB and then only read) and it is easier to maintain
+     * the code.
+     *
+     * It should be also called when DB is closed.
+     */
+    private synchronized void clearCache() {
+<span class="fc" id="L519">        vulnerabilitiesForCpeCache.clear();</span>
+<span class="fc" id="L520">    }</span>
+
+    /**
+     * Retrieves the vulnerabilities associated with the specified CPE.
+     *
+     * @param cpeStr the CPE name
+     * @return a list of Vulnerabilities
+     * @throws DatabaseException thrown if there is an exception retrieving data
+     */
+    public synchronized List&lt;Vulnerability&gt; getVulnerabilities(String cpeStr) throws DatabaseException {
+<span class="fc" id="L530">        final List&lt;Vulnerability&gt; cachedVulnerabilities = vulnerabilitiesForCpeCache.get(cpeStr);</span>
+<span class="fc bfc" id="L531" title="All 2 branches covered.">        if (cachedVulnerabilities != null) {</span>
+<span class="fc" id="L532">            LOGGER.debug(&quot;Cache hit for {}&quot;, cpeStr);</span>
+<span class="fc" id="L533">            return cachedVulnerabilities;</span>
+        } else {
+<span class="fc" id="L535">            LOGGER.debug(&quot;Cache miss for {}&quot;, cpeStr);</span>
+        }
+<span class="fc" id="L537">        final VulnerableSoftware cpe = new VulnerableSoftware();</span>
+        try {
+<span class="fc" id="L539">            cpe.parseName(cpeStr);</span>
+<span class="nc" id="L540">        } catch (UnsupportedEncodingException ex) {</span>
+<span class="nc" id="L541">            LOGGER.trace(&quot;&quot;, ex);</span>
+<span class="fc" id="L542">        }</span>
+<span class="fc" id="L543">        final DependencyVersion detectedVersion = parseDependencyVersion(cpe);</span>
+<span class="fc" id="L544">        final List&lt;Vulnerability&gt; vulnerabilities = new ArrayList&lt;&gt;();</span>
+
+<span class="fc" id="L546">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L548">            final PreparedStatement ps = getPreparedStatement(SELECT_CVE_FROM_SOFTWARE);</span>
+<span class="fc" id="L549">            ps.setString(1, cpe.getVendor());</span>
+<span class="fc" id="L550">            ps.setString(2, cpe.getProduct());</span>
+<span class="fc" id="L551">            rs = ps.executeQuery();</span>
+<span class="fc" id="L552">            String currentCVE = &quot;&quot;;</span>
+
+<span class="fc" id="L554">            final Map&lt;String, Boolean&gt; vulnSoftware = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L555" title="All 2 branches covered.">            while (rs.next()) {</span>
+<span class="fc" id="L556">                final String cveId = rs.getString(1);</span>
+<span class="fc bfc" id="L557" title="All 2 branches covered.">                if (!currentCVE.equals(cveId)) { //check for match and add</span>
+<span class="fc" id="L558">                    final Entry&lt;String, Boolean&gt; matchedCPE = getMatchingSoftware(vulnSoftware, cpe.getVendor(), cpe.getProduct(), detectedVersion);</span>
+<span class="fc bfc" id="L559" title="All 2 branches covered.">                    if (matchedCPE != null) {</span>
+<span class="fc" id="L560">                        final Vulnerability v = getVulnerability(currentCVE);</span>
+<span class="pc bpc" id="L561" title="1 of 2 branches missed.">                        if (v != null) {</span>
+<span class="fc bfc" id="L562" title="All 2 branches covered.">                            v.setMatchedCPE(matchedCPE.getKey(), matchedCPE.getValue() ? &quot;Y&quot; : null);</span>
+<span class="fc" id="L563">                            vulnerabilities.add(v);</span>
+                        }
+                    }
+<span class="fc" id="L566">                    vulnSoftware.clear();</span>
+<span class="fc" id="L567">                    currentCVE = cveId;</span>
+                }
+
+<span class="fc" id="L570">                final String cpeId = rs.getString(2);</span>
+<span class="fc" id="L571">                final String previous = rs.getString(3);</span>
+<span class="pc bpc" id="L572" title="1 of 4 branches missed.">                final Boolean p = previous != null &amp;&amp; !previous.isEmpty();</span>
+<span class="fc" id="L573">                vulnSoftware.put(cpeId, p);</span>
+<span class="fc" id="L574">            }</span>
+            //remember to process the last set of CVE/CPE entries
+<span class="fc" id="L576">            final Entry&lt;String, Boolean&gt; matchedCPE = getMatchingSoftware(vulnSoftware, cpe.getVendor(), cpe.getProduct(), detectedVersion);</span>
+<span class="fc bfc" id="L577" title="All 2 branches covered.">            if (matchedCPE != null) {</span>
+<span class="fc" id="L578">                final Vulnerability v = getVulnerability(currentCVE);</span>
+<span class="pc bpc" id="L579" title="1 of 2 branches missed.">                if (v != null) {</span>
+<span class="fc bfc" id="L580" title="All 2 branches covered.">                    v.setMatchedCPE(matchedCPE.getKey(), matchedCPE.getValue() ? &quot;Y&quot; : null);</span>
+<span class="fc" id="L581">                    vulnerabilities.add(v);</span>
+                }
+            }
+<span class="nc" id="L584">        } catch (SQLException ex) {</span>
+<span class="nc" id="L585">            throw new DatabaseException(&quot;Exception retrieving vulnerability for &quot; + cpeStr, ex);</span>
+        } finally {
+<span class="pc" id="L587">            DBUtils.closeResultSet(rs);</span>
+<span class="fc" id="L588">        }</span>
+<span class="fc" id="L589">        vulnerabilitiesForCpeCache.put(cpeStr, vulnerabilities);</span>
+<span class="fc" id="L590">        return vulnerabilities;</span>
+    }
+
+    /**
+     * Gets a vulnerability for the provided CVE.
+     *
+     * @param cve the CVE to lookup
+     * @return a vulnerability object
+     * @throws DatabaseException if an exception occurs
+     */
+    public synchronized Vulnerability getVulnerability(String cve) throws DatabaseException {
+<span class="fc" id="L601">        ResultSet rsV = null;</span>
+<span class="fc" id="L602">        ResultSet rsR = null;</span>
+<span class="fc" id="L603">        ResultSet rsS = null;</span>
+<span class="fc" id="L604">        Vulnerability vuln = null;</span>
+
+        try {
+<span class="fc" id="L607">            final PreparedStatement psV = getPreparedStatement(SELECT_VULNERABILITY);</span>
+<span class="fc" id="L608">            psV.setString(1, cve);</span>
+<span class="fc" id="L609">            rsV = psV.executeQuery();</span>
+<span class="pc bpc" id="L610" title="1 of 2 branches missed.">            if (rsV.next()) {</span>
+<span class="fc" id="L611">                vuln = new Vulnerability();</span>
+<span class="fc" id="L612">                vuln.setName(cve);</span>
+<span class="fc" id="L613">                vuln.setDescription(rsV.getString(2));</span>
+<span class="fc" id="L614">                String cwe = rsV.getString(3);</span>
+<span class="fc bfc" id="L615" title="All 2 branches covered.">                if (cwe != null) {</span>
+<span class="fc" id="L616">                    final String name = CweDB.getCweName(cwe);</span>
+<span class="fc bfc" id="L617" title="All 2 branches covered.">                    if (name != null) {</span>
+<span class="fc" id="L618">                        cwe += ' ' + name;</span>
+                    }
+                }
+<span class="fc" id="L621">                final int cveId = rsV.getInt(1);</span>
+<span class="fc" id="L622">                vuln.setCwe(cwe);</span>
+<span class="fc" id="L623">                vuln.setCvssScore(rsV.getFloat(4));</span>
+<span class="fc" id="L624">                vuln.setCvssAccessVector(rsV.getString(5));</span>
+<span class="fc" id="L625">                vuln.setCvssAccessComplexity(rsV.getString(6));</span>
+<span class="fc" id="L626">                vuln.setCvssAuthentication(rsV.getString(7));</span>
+<span class="fc" id="L627">                vuln.setCvssConfidentialityImpact(rsV.getString(8));</span>
+<span class="fc" id="L628">                vuln.setCvssIntegrityImpact(rsV.getString(9));</span>
+<span class="fc" id="L629">                vuln.setCvssAvailabilityImpact(rsV.getString(10));</span>
+
+<span class="fc" id="L631">                final PreparedStatement psR = getPreparedStatement(SELECT_REFERENCES);</span>
+<span class="fc" id="L632">                psR.setInt(1, cveId);</span>
+<span class="fc" id="L633">                rsR = psR.executeQuery();</span>
+<span class="fc bfc" id="L634" title="All 2 branches covered.">                while (rsR.next()) {</span>
+<span class="fc" id="L635">                    vuln.addReference(rsR.getString(1), rsR.getString(2), rsR.getString(3));</span>
+                }
+
+<span class="fc" id="L638">                final PreparedStatement psS = getPreparedStatement(SELECT_SOFTWARE);</span>
+<span class="fc" id="L639">                psS.setInt(1, cveId);</span>
+<span class="fc" id="L640">                rsS = psS.executeQuery();</span>
+<span class="fc bfc" id="L641" title="All 2 branches covered.">                while (rsS.next()) {</span>
+<span class="fc" id="L642">                    final String cpe = rsS.getString(1);</span>
+<span class="fc" id="L643">                    final String prevVersion = rsS.getString(2);</span>
+<span class="fc bfc" id="L644" title="All 2 branches covered.">                    if (prevVersion == null) {</span>
+<span class="fc" id="L645">                        vuln.addVulnerableSoftware(cpe);</span>
+                    } else {
+<span class="fc" id="L647">                        vuln.addVulnerableSoftware(cpe, prevVersion);</span>
+                    }
+<span class="fc" id="L649">                }</span>
+            }
+<span class="nc" id="L651">        } catch (SQLException ex) {</span>
+<span class="nc" id="L652">            throw new DatabaseException(&quot;Error retrieving &quot; + cve, ex);</span>
+        } finally {
+<span class="pc" id="L654">            DBUtils.closeResultSet(rsV);</span>
+<span class="pc" id="L655">            DBUtils.closeResultSet(rsR);</span>
+<span class="pc" id="L656">            DBUtils.closeResultSet(rsS);</span>
+<span class="fc" id="L657">        }</span>
+<span class="fc" id="L658">        return vuln;</span>
+    }
+
+    /**
+     * Updates the vulnerability within the database. If the vulnerability does
+     * not exist it will be added.
+     *
+     * @param vuln the vulnerability to add to the database
+     * @throws DatabaseException is thrown if the database
+     */
+    public synchronized void updateVulnerability(Vulnerability vuln) throws DatabaseException {
+<span class="fc" id="L669">        clearCache();</span>
+<span class="fc" id="L670">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L672">            int vulnerabilityId = 0;</span>
+<span class="fc" id="L673">            final PreparedStatement selectVulnerabilityId = getPreparedStatement(SELECT_VULNERABILITY_ID);</span>
+<span class="fc" id="L674">            selectVulnerabilityId.setString(1, vuln.getName());</span>
+<span class="fc" id="L675">            rs = selectVulnerabilityId.executeQuery();</span>
+<span class="fc bfc" id="L676" title="All 2 branches covered.">            if (rs.next()) {</span>
+<span class="fc" id="L677">                vulnerabilityId = rs.getInt(1);</span>
+                // first delete any existing vulnerability info. We don't know what was updated. yes, slower but atm easier.
+<span class="fc" id="L679">                final PreparedStatement deleteReference = getPreparedStatement(DELETE_REFERENCE);</span>
+<span class="fc" id="L680">                deleteReference.setInt(1, vulnerabilityId);</span>
+<span class="fc" id="L681">                deleteReference.execute();</span>
+
+<span class="fc" id="L683">                final PreparedStatement deleteSoftware = getPreparedStatement(DELETE_SOFTWARE);</span>
+<span class="fc" id="L684">                deleteSoftware.setInt(1, vulnerabilityId);</span>
+<span class="fc" id="L685">                deleteSoftware.execute();</span>
+            }
+<span class="fc" id="L687">            DBUtils.closeResultSet(rs);</span>
+
+<span class="fc bfc" id="L689" title="All 2 branches covered.">            if (vulnerabilityId != 0) {</span>
+<span class="fc bfc" id="L690" title="All 2 branches covered.">                if (vuln.getDescription().contains(&quot;** REJECT **&quot;)) {</span>
+<span class="fc" id="L691">                    final PreparedStatement deleteVulnerability = getPreparedStatement(DELETE_VULNERABILITY);</span>
+<span class="fc" id="L692">                    deleteVulnerability.setInt(1, vulnerabilityId);</span>
+<span class="fc" id="L693">                    deleteVulnerability.executeUpdate();</span>
+<span class="fc" id="L694">                } else {</span>
+<span class="fc" id="L695">                    final PreparedStatement updateVulnerability = getPreparedStatement(UPDATE_VULNERABILITY);</span>
+<span class="fc" id="L696">                    updateVulnerability.setString(1, vuln.getDescription());</span>
+<span class="fc" id="L697">                    updateVulnerability.setString(2, vuln.getCwe());</span>
+<span class="fc" id="L698">                    updateVulnerability.setFloat(3, vuln.getCvssScore());</span>
+<span class="fc" id="L699">                    updateVulnerability.setString(4, vuln.getCvssAccessVector());</span>
+<span class="fc" id="L700">                    updateVulnerability.setString(5, vuln.getCvssAccessComplexity());</span>
+<span class="fc" id="L701">                    updateVulnerability.setString(6, vuln.getCvssAuthentication());</span>
+<span class="fc" id="L702">                    updateVulnerability.setString(7, vuln.getCvssConfidentialityImpact());</span>
+<span class="fc" id="L703">                    updateVulnerability.setString(8, vuln.getCvssIntegrityImpact());</span>
+<span class="fc" id="L704">                    updateVulnerability.setString(9, vuln.getCvssAvailabilityImpact());</span>
+<span class="fc" id="L705">                    updateVulnerability.setInt(10, vulnerabilityId);</span>
+<span class="fc" id="L706">                    updateVulnerability.executeUpdate();</span>
+<span class="fc" id="L707">                }</span>
+            } else {
+<span class="fc" id="L709">                final PreparedStatement insertVulnerability = getPreparedStatement(INSERT_VULNERABILITY);</span>
+<span class="fc" id="L710">                insertVulnerability.setString(1, vuln.getName());</span>
+<span class="fc" id="L711">                insertVulnerability.setString(2, vuln.getDescription());</span>
+<span class="fc" id="L712">                insertVulnerability.setString(3, vuln.getCwe());</span>
+<span class="fc" id="L713">                insertVulnerability.setFloat(4, vuln.getCvssScore());</span>
+<span class="fc" id="L714">                insertVulnerability.setString(5, vuln.getCvssAccessVector());</span>
+<span class="fc" id="L715">                insertVulnerability.setString(6, vuln.getCvssAccessComplexity());</span>
+<span class="fc" id="L716">                insertVulnerability.setString(7, vuln.getCvssAuthentication());</span>
+<span class="fc" id="L717">                insertVulnerability.setString(8, vuln.getCvssConfidentialityImpact());</span>
+<span class="fc" id="L718">                insertVulnerability.setString(9, vuln.getCvssIntegrityImpact());</span>
+<span class="fc" id="L719">                insertVulnerability.setString(10, vuln.getCvssAvailabilityImpact());</span>
+<span class="fc" id="L720">                insertVulnerability.execute();</span>
+                try {
+<span class="fc" id="L722">                    rs = insertVulnerability.getGeneratedKeys();</span>
+<span class="fc" id="L723">                    rs.next();</span>
+<span class="fc" id="L724">                    vulnerabilityId = rs.getInt(1);</span>
+<span class="nc" id="L725">                } catch (SQLException ex) {</span>
+<span class="nc" id="L726">                    final String msg = String.format(&quot;Unable to retrieve id for new vulnerability for '%s'&quot;, vuln.getName());</span>
+<span class="nc" id="L727">                    throw new DatabaseException(msg, ex);</span>
+                } finally {
+<span class="pc" id="L729">                    DBUtils.closeResultSet(rs);</span>
+<span class="fc" id="L730">                }</span>
+            }
+
+<span class="fc" id="L733">            final PreparedStatement insertReference = getPreparedStatement(INSERT_REFERENCE);</span>
+<span class="fc bfc" id="L734" title="All 2 branches covered.">            for (Reference r : vuln.getReferences()) {</span>
+<span class="fc" id="L735">                insertReference.setInt(1, vulnerabilityId);</span>
+<span class="fc" id="L736">                insertReference.setString(2, r.getName());</span>
+<span class="fc" id="L737">                insertReference.setString(3, r.getUrl());</span>
+<span class="fc" id="L738">                insertReference.setString(4, r.getSource());</span>
+<span class="fc" id="L739">                insertReference.execute();</span>
+<span class="fc" id="L740">            }</span>
+
+<span class="fc" id="L742">            final PreparedStatement insertSoftware = getPreparedStatement(INSERT_SOFTWARE);</span>
+<span class="fc bfc" id="L743" title="All 2 branches covered.">            for (VulnerableSoftware s : vuln.getVulnerableSoftware()) {</span>
+<span class="fc" id="L744">                int cpeProductId = 0;</span>
+<span class="fc" id="L745">                final PreparedStatement selectCpeId = getPreparedStatement(SELECT_CPE_ID);</span>
+<span class="fc" id="L746">                selectCpeId.setString(1, s.getName());</span>
+                try {
+<span class="fc" id="L748">                    rs = selectCpeId.executeQuery();</span>
+<span class="fc bfc" id="L749" title="All 2 branches covered.">                    if (rs.next()) {</span>
+<span class="fc" id="L750">                        cpeProductId = rs.getInt(1);</span>
+                    }
+<span class="nc" id="L752">                } catch (SQLException ex) {</span>
+<span class="nc" id="L753">                    throw new DatabaseException(&quot;Unable to get primary key for new cpe: &quot; + s.getName(), ex);</span>
+                } finally {
+<span class="pc" id="L755">                    DBUtils.closeResultSet(rs);</span>
+<span class="fc" id="L756">                }</span>
+
+<span class="fc bfc" id="L758" title="All 2 branches covered.">                if (cpeProductId == 0) {</span>
+<span class="fc" id="L759">                    final PreparedStatement insertCpe = getPreparedStatement(INSERT_CPE);</span>
+<span class="fc" id="L760">                    insertCpe.setString(1, s.getName());</span>
+<span class="fc" id="L761">                    insertCpe.setString(2, s.getVendor());</span>
+<span class="fc" id="L762">                    insertCpe.setString(3, s.getProduct());</span>
+<span class="fc" id="L763">                    insertCpe.executeUpdate();</span>
+<span class="fc" id="L764">                    cpeProductId = DBUtils.getGeneratedKey(insertCpe);</span>
+                }
+<span class="pc bpc" id="L766" title="1 of 2 branches missed.">                if (cpeProductId == 0) {</span>
+<span class="nc" id="L767">                    throw new DatabaseException(&quot;Unable to retrieve cpeProductId - no data returned&quot;);</span>
+                }
+
+<span class="fc" id="L770">                insertSoftware.setInt(1, vulnerabilityId);</span>
+<span class="fc" id="L771">                insertSoftware.setInt(2, cpeProductId);</span>
+
+<span class="fc bfc" id="L773" title="All 2 branches covered.">                if (s.getPreviousVersion() == null) {</span>
+<span class="fc" id="L774">                    insertSoftware.setNull(3, java.sql.Types.VARCHAR);</span>
+                } else {
+<span class="fc" id="L776">                    insertSoftware.setString(3, s.getPreviousVersion());</span>
+                }
+                try {
+<span class="fc" id="L779">                    insertSoftware.execute();</span>
+<span class="nc" id="L780">                } catch (SQLException ex) {</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">                    if (ex.getMessage().contains(&quot;Duplicate entry&quot;)) {</span>
+<span class="nc" id="L782">                        final String msg = String.format(&quot;Duplicate software key identified in '%s:%s'&quot;, vuln.getName(), s.getName());</span>
+<span class="nc" id="L783">                        LOGGER.info(msg, ex);</span>
+<span class="nc" id="L784">                    } else {</span>
+<span class="nc" id="L785">                        throw ex;</span>
+                    }
+<span class="fc" id="L787">                }</span>
+
+<span class="fc" id="L789">            }</span>
+<span class="nc" id="L790">        } catch (SQLException ex) {</span>
+<span class="nc" id="L791">            final String msg = String.format(&quot;Error updating '%s'&quot;, vuln.getName());</span>
+<span class="nc" id="L792">            LOGGER.debug(msg, ex);</span>
+<span class="nc" id="L793">            throw new DatabaseException(msg, ex);</span>
+        } finally {
+<span class="pc" id="L795">            DBUtils.closeResultSet(rs);</span>
+<span class="fc" id="L796">        }</span>
+<span class="fc" id="L797">    }</span>
+
+    /**
+     * Checks to see if data exists so that analysis can be performed.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if data exists; otherwise &lt;code&gt;false&lt;/code&gt;
+     */
+    public synchronized boolean dataExists() {
+<span class="fc" id="L805">        ResultSet rs = null;</span>
+        try {
+<span class="fc" id="L807">            final PreparedStatement cs = getPreparedStatement(COUNT_CPE);</span>
+<span class="fc" id="L808">            rs = cs.executeQuery();</span>
+<span class="pc bpc" id="L809" title="1 of 4 branches missed.">            if (rs.next() &amp;&amp; rs.getInt(1) &gt; 0) {</span>
+<span class="fc" id="L810">                return true;</span>
+            }
+<span class="nc" id="L812">        } catch (Exception ex) {</span>
+            String dd;
+            try {
+<span class="nc" id="L815">                dd = settings.getDataDirectory().getAbsolutePath();</span>
+<span class="nc" id="L816">            } catch (IOException ex1) {</span>
+<span class="nc" id="L817">                dd = settings.getString(Settings.KEYS.DATA_DIRECTORY);</span>
+<span class="nc" id="L818">            }</span>
+<span class="nc" id="L819">            LOGGER.error(&quot;Unable to access the local database.\n\nEnsure that '{}' is a writable directory. &quot;</span>
+                    + &quot;If the problem persist try deleting the files in '{}' and running {} again. If the problem continues, please &quot;
+                    + &quot;create a log file (see documentation at http://jeremylong.github.io/DependencyCheck/) and open a ticket at &quot;
+                    + &quot;https://github.com/jeremylong/DependencyCheck/issues and include the log file.\n\n&quot;,
+                    dd, dd, settings.getString(Settings.KEYS.APPLICATION_NAME));
+<span class="nc" id="L824">            LOGGER.debug(&quot;&quot;, ex);</span>
+        } finally {
+<span class="pc" id="L826">            DBUtils.closeResultSet(rs);</span>
+<span class="pc" id="L827">        }</span>
+<span class="fc" id="L828">        return false;</span>
+    }
+
+    /**
+     * It is possible that orphaned rows may be generated during database
+     * updates. This should be called after all updates have been completed to
+     * ensure orphan entries are removed.
+     */
+    public synchronized void cleanupDatabase() {
+<span class="fc" id="L837">        clearCache();</span>
+        try {
+<span class="fc" id="L839">            final PreparedStatement ps = getPreparedStatement(CLEANUP_ORPHANS);</span>
+<span class="pc bpc" id="L840" title="1 of 2 branches missed.">            if (ps != null) {</span>
+<span class="fc" id="L841">                ps.executeUpdate();</span>
+            }
+<span class="nc" id="L843">        } catch (SQLException ex) {</span>
+<span class="nc" id="L844">            LOGGER.error(&quot;An unexpected SQL Exception occurred; please see the verbose log for more details.&quot;);</span>
+<span class="nc" id="L845">            LOGGER.debug(&quot;&quot;, ex);</span>
+<span class="fc" id="L846">        }</span>
+<span class="fc" id="L847">    }</span>
+
+    /**
+     * Determines if the given identifiedVersion is affected by the given cpeId
+     * and previous version flag. A non-null, non-empty string passed to the
+     * previous version argument indicates that all previous versions are
+     * affected.
+     *
+     * @param vendor the vendor of the dependency being analyzed
+     * @param product the product name of the dependency being analyzed
+     * @param vulnerableSoftware a map of the vulnerable software with a boolean
+     * indicating if all previous versions are affected
+     * @param identifiedVersion the identified version of the dependency being
+     * analyzed
+     * @return true if the identified version is affected, otherwise false
+     */
+    protected Entry&lt;String, Boolean&gt; getMatchingSoftware(Map&lt;String, Boolean&gt; vulnerableSoftware, String vendor, String product,
+            DependencyVersion identifiedVersion) {
+
+<span class="fc bfc" id="L866" title="All 4 branches covered.">        final boolean isVersionTwoADifferentProduct = &quot;apache&quot;.equals(vendor) &amp;&amp; &quot;struts&quot;.equals(product);</span>
+
+<span class="fc" id="L868">        final Set&lt;String&gt; majorVersionsAffectingAllPrevious = new HashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L869" title="2 of 4 branches missed.">        final boolean matchesAnyPrevious = identifiedVersion == null || &quot;-&quot;.equals(identifiedVersion.toString());</span>
+<span class="fc" id="L870">        String majorVersionMatch = null;</span>
+<span class="fc bfc" id="L871" title="All 2 branches covered.">        for (Entry&lt;String, Boolean&gt; entry : vulnerableSoftware.entrySet()) {</span>
+<span class="fc" id="L872">            final DependencyVersion v = parseDependencyVersion(entry.getKey());</span>
+<span class="fc bfc" id="L873" title="All 4 branches covered.">            if (v == null || &quot;-&quot;.equals(v.toString())) { //all versions</span>
+<span class="fc" id="L874">                return entry;</span>
+            }
+<span class="fc bfc" id="L876" title="All 2 branches covered.">            if (entry.getValue()) {</span>
+<span class="pc bpc" id="L877" title="1 of 2 branches missed.">                if (matchesAnyPrevious) {</span>
+<span class="nc" id="L878">                    return entry;</span>
+                }
+<span class="pc bpc" id="L880" title="1 of 4 branches missed.">                if (identifiedVersion != null &amp;&amp; identifiedVersion.getVersionParts().get(0).equals(v.getVersionParts().get(0))) {</span>
+<span class="fc" id="L881">                    majorVersionMatch = v.getVersionParts().get(0);</span>
+                }
+<span class="fc" id="L883">                majorVersionsAffectingAllPrevious.add(v.getVersionParts().get(0));</span>
+            }
+<span class="fc" id="L885">        }</span>
+<span class="pc bpc" id="L886" title="1 of 2 branches missed.">        if (matchesAnyPrevious) {</span>
+<span class="nc" id="L887">            return null;</span>
+        }
+
+<span class="fc bfc" id="L890" title="All 4 branches covered.">        final boolean canSkipVersions = majorVersionMatch != null &amp;&amp; majorVersionsAffectingAllPrevious.size() &gt; 1;</span>
+        //yes, we are iterating over this twice. The first time we are skipping versions those that affect all versions
+        //then later we process those that affect all versions. This could be done with sorting...
+<span class="fc bfc" id="L893" title="All 2 branches covered.">        for (Entry&lt;String, Boolean&gt; entry : vulnerableSoftware.entrySet()) {</span>
+<span class="fc bfc" id="L894" title="All 2 branches covered.">            if (!entry.getValue()) {</span>
+<span class="fc" id="L895">                final DependencyVersion v = parseDependencyVersion(entry.getKey());</span>
+                //this can't dereference a null 'majorVersionMatch' as canSkipVersions accounts for this.
+<span class="pc bpc" id="L897" title="1 of 6 branches missed.">                if (canSkipVersions &amp;&amp; majorVersionMatch != null &amp;&amp; !majorVersionMatch.equals(v.getVersionParts().get(0))) {</span>
+<span class="fc" id="L898">                    continue;</span>
+                }
+                //this can't dereference a null 'identifiedVersion' because if it was null we would have exited
+                //in the above loop or just after loop (if matchesAnyPrevious return null).
+<span class="pc bpc" id="L902" title="1 of 4 branches missed.">                if (identifiedVersion != null &amp;&amp; identifiedVersion.equals(v)) {</span>
+<span class="fc" id="L903">                    return entry;</span>
+                }
+            }
+<span class="fc" id="L906">        }</span>
+<span class="fc bfc" id="L907" title="All 2 branches covered.">        for (Entry&lt;String, Boolean&gt; entry : vulnerableSoftware.entrySet()) {</span>
+<span class="fc bfc" id="L908" title="All 2 branches covered.">            if (entry.getValue()) {</span>
+<span class="fc" id="L909">                final DependencyVersion v = parseDependencyVersion(entry.getKey());</span>
+                //this can't dereference a null 'majorVersionMatch' as canSkipVersions accounts for this.
+<span class="pc bpc" id="L911" title="1 of 6 branches missed.">                if (canSkipVersions &amp;&amp; majorVersionMatch != null &amp;&amp; !majorVersionMatch.equals(v.getVersionParts().get(0))) {</span>
+<span class="fc" id="L912">                    continue;</span>
+                }
+                //this can't dereference a null 'identifiedVersion' because if it was null we would have exited
+                //in the above loop or just after loop (if matchesAnyPrevious return null).
+<span class="pc bpc" id="L916" title="2 of 10 branches missed.">                if (entry.getValue() &amp;&amp; identifiedVersion != null &amp;&amp; identifiedVersion.compareTo(v) &lt;= 0</span>
+                        &amp;&amp; !(isVersionTwoADifferentProduct &amp;&amp; !identifiedVersion.getVersionParts().get(0).equals(v.getVersionParts().get(0)))) {
+<span class="fc" id="L918">                    return entry;</span>
+                }
+            }
+<span class="fc" id="L921">        }</span>
+<span class="fc" id="L922">        return null;</span>
+    }
+
+    /**
+     * Parses the version (including revision) from a CPE identifier. If no
+     * version is identified then a '-' is returned.
+     *
+     * @param cpeStr a cpe identifier
+     * @return a dependency version
+     */
+    private DependencyVersion parseDependencyVersion(String cpeStr) {
+<span class="fc" id="L933">        final VulnerableSoftware cpe = new VulnerableSoftware();</span>
+        try {
+<span class="fc" id="L935">            cpe.parseName(cpeStr);</span>
+<span class="nc" id="L936">        } catch (UnsupportedEncodingException ex) {</span>
+            //never going to happen.
+<span class="nc" id="L938">            LOGGER.trace(&quot;&quot;, ex);</span>
+<span class="fc" id="L939">        }</span>
+<span class="fc" id="L940">        return parseDependencyVersion(cpe);</span>
+    }
+
+    /**
+     * Takes a CPE and parses out the version number. If no version is
+     * identified then a '-' is returned.
+     *
+     * @param cpe a cpe object
+     * @return a dependency version
+     */
+    private DependencyVersion parseDependencyVersion(VulnerableSoftware cpe) {
+        final DependencyVersion cpeVersion;
+<span class="pc bpc" id="L952" title="1 of 4 branches missed.">        if (cpe.getVersion() != null &amp;&amp; !cpe.getVersion().isEmpty()) {</span>
+            final String versionText;
+<span class="pc bpc" id="L954" title="1 of 4 branches missed.">            if (cpe.getUpdate() != null &amp;&amp; !cpe.getUpdate().isEmpty()) {</span>
+<span class="fc" id="L955">                versionText = String.format(&quot;%s.%s&quot;, cpe.getVersion(), cpe.getUpdate());</span>
+            } else {
+<span class="fc" id="L957">                versionText = cpe.getVersion();</span>
+            }
+<span class="fc" id="L959">            cpeVersion = DependencyVersionUtil.parseVersion(versionText);</span>
+<span class="fc" id="L960">        } else {</span>
+<span class="fc" id="L961">            cpeVersion = new DependencyVersion(&quot;-&quot;);</span>
+        }
+<span class="fc" id="L963">        return cpeVersion;</span>
+    }
+
+    /**
+     * This method is only referenced in unused code.
+     *
+     * Deletes unused dictionary entries from the database.
+     */
+    public synchronized void deleteUnusedCpe() {
+<span class="nc" id="L972">        clearCache();</span>
+<span class="nc" id="L973">        PreparedStatement ps = null;</span>
+        try {
+<span class="nc" id="L975">            ps = connection.prepareStatement(statementBundle.getString(&quot;DELETE_UNUSED_DICT_CPE&quot;));</span>
+<span class="nc" id="L976">            ps.executeUpdate();</span>
+<span class="nc" id="L977">        } catch (SQLException ex) {</span>
+<span class="nc" id="L978">            LOGGER.error(&quot;Unable to delete CPE dictionary entries&quot;, ex);</span>
+        } finally {
+<span class="nc" id="L980">            DBUtils.closeStatement(ps);</span>
+<span class="nc" id="L981">        }</span>
+<span class="nc" id="L982">    }</span>
+
+    /**
+     * This method is only referenced in unused code and will likely break on
+     * MySQL if ever used due to the MERGE statement.
+     *
+     * Merges CPE entries into the database.
+     *
+     * @param cpe the CPE identifier
+     * @param vendor the CPE vendor
+     * @param product the CPE product
+     */
+    public synchronized void addCpe(String cpe, String vendor, String product) {
+<span class="nc" id="L995">        clearCache();</span>
+<span class="nc" id="L996">        PreparedStatement ps = null;</span>
+        try {
+<span class="nc" id="L998">            ps = connection.prepareStatement(statementBundle.getString(&quot;ADD_DICT_CPE&quot;));</span>
+<span class="nc" id="L999">            ps.setString(1, cpe);</span>
+<span class="nc" id="L1000">            ps.setString(2, vendor);</span>
+<span class="nc" id="L1001">            ps.setString(3, product);</span>
+<span class="nc" id="L1002">            ps.executeUpdate();</span>
+<span class="nc" id="L1003">        } catch (SQLException ex) {</span>
+<span class="nc" id="L1004">            LOGGER.error(&quot;Unable to add CPE dictionary entry&quot;, ex);</span>
+        } finally {
+<span class="nc" id="L1006">            DBUtils.closeStatement(ps);</span>
+<span class="nc" id="L1007">        }</span>
+<span class="nc" id="L1008">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.7.9.201702052155</span></div></body></html>

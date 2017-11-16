@@ -51,3 +51,13 @@ $$ LANGUAGE sql;
 GRANT EXECUTE ON FUNCTION public.save_property(varchar(50),varchar(500)) TO dcuser;
 
 UPDATE Properties SET value='3.0' WHERE ID='version';
+
+DROP TABLE IF EXISTS central;
+
+CREATE TABLE central (sha1 char(40), groupId varchar(500), artifactId varchar(500), 
+    version varchar(100), artifactUrl varchar(1000), pomUrl varchar(1000), createdOn DATE);
+
+CREATE INDEX idxCentral ON central(sha1);
+
+UPDATE Properties SET value='3.1' WHERE ID='version';
+

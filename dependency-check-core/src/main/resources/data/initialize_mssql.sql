@@ -34,3 +34,14 @@ CREATE INDEX idxSoftwareCve ON software(cveid);
 CREATE INDEX idxSoftwareCpe ON software(cpeEntryId);
 
 INSERT INTO properties(id,value) VALUES ('version','3.0');
+
+
+if exists (SELECT 1 FROM sysobjects WHERE name='central' AND xtype='U')
+	drop table central
+
+CREATE TABLE central (sha1 char(40), groupId varchar(500), artifactId varchar(500), 
+    version varchar(100), artifactUrl varchar(1000), pomUrl varchar(1000), createdOn DATE);
+
+CREATE INDEX idxCentral ON central(sha1);
+
+UPDATE Properties SET value='3.1' WHERE ID='version';

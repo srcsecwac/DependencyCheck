@@ -1,7 +1,9 @@
+--upgrading the minor version allows older instances of ODC to connect.
+UPDATE Properties SET value='3.1' WHERE ID='version';
 
---the following is not currently used.
---ALTER TABLE cpeEntry ADD COLUMN IF NOT EXISTS dictionaryEntry BOOLEAN;
---ALTER TABLE cpeEntry ALTER COLUMN dictionaryEntry  SET DEFAULT FALSE;
---UPDATE cpeEntry SET dictionaryEntry=false;
+DROP TABLE IF EXISTS central;
 
---UPDATE Properties SET value='3.1' WHERE ID='version';
+CREATE TABLE central (sha1 CHAR(40), groupId VARCHAR(500), artifactId VARCHAR(500),
+    version VARCHAR(100), artifactUrl VARCHAR(1000), pomUrl VARCHAR(1000), createdOn DATE);
+
+CREATE INDEX idxCentral ON central(sha1);

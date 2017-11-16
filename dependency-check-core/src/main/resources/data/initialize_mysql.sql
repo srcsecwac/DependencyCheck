@@ -55,3 +55,13 @@ DELIMITER ;
 GRANT EXECUTE ON PROCEDURE dependencycheck.save_property TO 'dcuser';
 
 UPDATE properties SET value='3.0' WHERE ID='version';
+
+DROP TABLE IF EXISTS central;
+
+CREATE TABLE central (sha1 char(40), groupId VARCHAR(500), artifactId VARCHAR(500), 
+    version VARCHAR(100), artifactUrl VARCHAR(1000), pomUrl VARCHAR(1000), createdOn DATE);
+
+CREATE INDEX idxCentral ON central(sha1);
+
+UPDATE Properties SET value='3.1' WHERE ID='version';
+

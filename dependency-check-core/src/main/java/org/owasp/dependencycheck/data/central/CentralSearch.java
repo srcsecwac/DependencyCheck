@@ -19,12 +19,14 @@ package org.owasp.dependencycheck.data.central;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.ParserConfigurationException;
@@ -33,6 +35,8 @@ import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
 import org.owasp.dependencycheck.data.nexus.MavenArtifact;
+import org.owasp.dependencycheck.data.nvdcve.ConnectionFactory;
+import org.owasp.dependencycheck.data.nvdcve.CveDB;
 import org.owasp.dependencycheck.utils.Settings;
 import org.owasp.dependencycheck.utils.URLConnectionFactory;
 import org.owasp.dependencycheck.utils.XmlUtils;
@@ -74,14 +78,27 @@ public class CentralSearch {
      */
     private final Settings settings;
 
+    private CentralCache cache = null;
+
     /**
-     * Creates a NexusSearch for the given repository URL.
+     * Creates a CentralSearch for the given repository URL.
      *
      * @param settings the configured settings
      * @throws MalformedURLException thrown if the configured URL is invalid
      */
-    public CentralSearch(Settings settings) throws MalformedURLException {
+    public CentralSearch(Settings settings, CveDB database) throws MalformedURLException {
         this.settings = settings;
+        if (database != null) {
+            if (ConnectionFactory.isH2Connection(settings)) {
+                try {
+                    cache = new CentralDiskCache(settings, database);
+                } catch (CacheException ex) {
+                    LOGGER.debug("Unable to create central disk cache", ex);
+                }
+            } else {
+                cache = new CentralDatabaseCache(settings, database);
+            }
+        }
 
         final String searchUrl = settings.getString(Settings.KEYS.ANALYZER_CENTRAL_URL);
         LOGGER.debug("Central Search URL: {}", searchUrl);
@@ -121,6 +138,16 @@ public class CentralSearch {
             throw new IllegalArgumentException("Invalid SHA1 format");
         }
         List<MavenArtifact> result = null;
+        if (cache != null) {
+            try {
+                result = cache.searchSha1(sha1);
+                if (result != null) {
+                    return result;
+                }
+            } catch (CacheException ex) {
+                LOGGER.debug("Error reading from the central cache", ex);
+            }
+        }
         final URL url = new URL(String.format(query, rootURL, sha1));
 
         LOGGER.debug("Searching Central url {}", url);
@@ -178,7 +205,15 @@ public class CentralSearch {
                             }
                         }
                         LOGGER.trace("Version: {}", v);
-                        result.add(new MavenArtifact(g, a, v, jarAvailable, pomAvailable, useHTTPS));
+                        MavenArtifact artifact = new MavenArtifact(g, a, v, jarAvailable, pomAvailable, useHTTPS);
+                        if (cache != null) {
+                            try {
+                                cache.cacheData(sha1, artifact);
+                            } catch (CacheException ex) {
+                                LOGGER.debug("Error writing the central cache", ex);
+                            }
+                        }
+                        result.add(artifact);
                     }
                 }
             } catch (ParserConfigurationException | IOException | SAXException | XPathExpressionException e) {

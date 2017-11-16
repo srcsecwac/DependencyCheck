@@ -55,6 +55,7 @@ import static org.owasp.dependencycheck.data.nvdcve.CveDB.PreparedStatementCveDb
 //CSON: AvoidStarImport
 import static org.apache.commons.collections.map.AbstractReferenceMap.HARD;
 import static org.apache.commons.collections.map.AbstractReferenceMap.SOFT;
+import org.owasp.dependencycheck.data.nexus.MavenArtifact;
 
 /**
  * The database holding information about the NVD CVE data. This class is safe
@@ -194,7 +195,19 @@ public final class CveDB implements AutoCloseable {
         /**
          * Key for SQL Statement.
          */
-        UPDATE_VULNERABILITY
+        UPDATE_VULNERABILITY,
+        /**
+         * Key for SQL Statement.
+         */
+        SELECT_CENTRAL_CACHE,
+        /**
+         * Key for SQL Statement.
+         */
+        INSERT_CENTRAL_CACHE,
+        /**
+         * Key for SQL Statement.
+         */
+        DELETE_CENTRAL_CACHE
     }
 
     /**
@@ -1004,6 +1017,64 @@ public final class CveDB implements AutoCloseable {
             LOGGER.error("Unable to add CPE dictionary entry", ex);
         } finally {
             DBUtils.closeStatement(ps);
+        }
+    }
+
+    public synchronized List<MavenArtifact> getCentralCache(String sha1) {
+        ResultSet rs = null;
+        List<MavenArtifact> results = new ArrayList<>();
+        try {
+            final PreparedStatement selectCache = getPreparedStatement(SELECT_CENTRAL_CACHE);
+            selectCache.setString(1, sha1);
+            rs = selectCache.executeQuery();
+            while (rs.next()) {
+                MavenArtifact a = new MavenArtifact(rs.getString(1), rs.getString(2), rs.getString(3));
+                final String artifactUrl = rs.getString(4);
+                if (artifactUrl != null && !artifactUrl.isEmpty()) {
+                    a.setArtifactUrl(artifactUrl);
+                }
+                final String pomUrl = rs.getString(5);
+                if (pomUrl != null && !pomUrl.isEmpty()) {
+                    a.setArtifactUrl(pomUrl);
+                }
+                results.add(a);
+            }
+        } catch (SQLException ex) {
+            final String msg = String.format("Exception retrieving cache entry for sha1:'%s'", sha1);
+            throw new DatabaseException(msg, ex);
+        } finally {
+            DBUtils.closeResultSet(rs);
+        }
+        if (results.isEmpty()) {
+            return null;
+        }
+        return results;
+    }
+
+    public synchronized void addCentralCache(String sha1, String groupId, String artifactId, String version, String artifactUrl, String pomUrl) {
+        try {
+            final PreparedStatement insertCache = getPreparedStatement(INSERT_CENTRAL_CACHE);
+            insertCache.setString(1, sha1);
+            insertCache.setString(2, groupId);
+            insertCache.setString(3, artifactId);
+            insertCache.setString(4, version);
+            insertCache.setString(5, artifactUrl == null ? "" : artifactUrl);
+            insertCache.setString(6, pomUrl == null ? "" : pomUrl);
+            insertCache.executeUpdate();
+        } catch (SQLException ex) {
+            final String msg = String.format("Exception creating cache entry for {sha1:'%s', groupId:'%s', artifactId:'%s', version:'%s'}",
+                    sha1, groupId, artifactId, version);
+            throw new DatabaseException(msg, ex);
+        }
+    }
+
+    public synchronized void clearCentralCache(int validForDays) {
+        try {
+            final PreparedStatement deleteCache = getPreparedStatement(DELETE_CENTRAL_CACHE);
+            deleteCache.setInt(1, -1 * validForDays);
+            deleteCache.executeUpdate();
+        } catch (SQLException ex) {
+            throw new DatabaseException("Exception occured clearing the central cache", ex);
         }
     }
 }

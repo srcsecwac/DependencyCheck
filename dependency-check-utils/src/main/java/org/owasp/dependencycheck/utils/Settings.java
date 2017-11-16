@@ -118,6 +118,11 @@ public final class Settings {
          */
         public static final String DATA_DIRECTORY = "data.directory";
         /**
+         * The base path to use for the cache directory (for use with embedded
+         * db).
+         */
+        public static final String CACHE_DIRECTORY = "cache.directory";
+        /**
          * The database file name.
          */
         public static final String DB_FILE_NAME = "data.file_name";
@@ -352,6 +357,10 @@ public final class Settings {
          * The properties key for the Central search query.
          */
         public static final String ANALYZER_CENTRAL_QUERY = "analyzer.central.query";
+        /**
+         * The properties key for the Central Cache valid for days.
+         */
+        public static final String ANALYZER_CENTRAL_CACHE_VALID_DAYS = "analyzer.central.cave.valid.days";
         /**
          * The path to mono, if available.
          */

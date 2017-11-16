@@ -136,7 +136,7 @@ public class CentralAnalyzer extends AbstractFileTypeAnalyzer {
         LOGGER.debug("Central analyzer enabled: {}", isEnabled());
         if (isEnabled()) {
             try {
-                searcher = new CentralSearch(getSettings());
+                searcher = new CentralSearch(getSettings(), engine.getDatabase());
             } catch (MalformedURLException ex) {
                 setEnabled(false);
                 throw new InitializationException("The configured URL to Maven Central is malformed", ex);

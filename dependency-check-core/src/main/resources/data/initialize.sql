@@ -27,3 +27,12 @@ CREATE INDEX idxSoftwareCpe ON software(cpeEntryId);
 
 CREATE TABLE properties (id varchar(50) PRIMARY KEY, value varchar(500));
 INSERT INTO properties(id, value) VALUES ('version', '2.9');
+
+DROP TABLE IF EXISTS central;
+
+CREATE TABLE central (sha1 CHAR(40), groupId VARCHAR(500), artifactId VARCHAR(500),
+    version VARCHAR(100), artifactUrl VARCHAR(1000), pomUrl VARCHAR(1000), createdOn DATE);
+
+CREATE INDEX idxCentral ON central(sha1);
+
+UPDATE Properties SET value='3.1' WHERE ID='version';

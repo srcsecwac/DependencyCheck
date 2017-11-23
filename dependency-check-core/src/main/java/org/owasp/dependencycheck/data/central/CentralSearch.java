@@ -84,7 +84,7 @@ public class CentralSearch {
         this.settings = settings;
 
         final String searchUrl = settings.getString(Settings.KEYS.ANALYZER_CENTRAL_URL);
-        LOGGER.debug("Central Search URL: {}", searchUrl);
+        LOGGER.info("Central Search URL: {}", searchUrl);
         if (isInvalidURL(searchUrl)) {
             throw new MalformedURLException(String.format("The configured central analyzer URL is invalid: %s", searchUrl));
         }

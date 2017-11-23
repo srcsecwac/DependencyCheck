@@ -277,6 +277,8 @@ public class Engine implements FileFilter, AutoCloseable {
         final List<Analyzer> iterator = service.getAnalyzers(mode.getPhases());
         for (Analyzer a : iterator) {
             a.initialize(this.settings);
+            //LOGGER.info("add analyzer:{}",a.getName());
+            
             analyzers.get(a.getAnalysisPhase()).add(a);
             if (a instanceof FileTypeAnalyzer) {
                 this.fileTypeAnalyzers.add((FileTypeAnalyzer) a);
@@ -454,6 +456,7 @@ public class Engine implements FileFilter, AutoCloseable {
      * @since v0.3.2.5
      */
     public List<Dependency> scan(Collection<File> files) {
+    	LOGGER.info("before scan dependencies size {}", dependencies.size());
         return scan(files, null);
     }
 
@@ -638,11 +641,12 @@ public class Engine implements FileFilter, AutoCloseable {
      */
     public void analyzeDependencies() throws ExceptionCollection {
         final List<Throwable> exceptions = Collections.synchronizedList(new ArrayList<Throwable>());
-
+        /* golf this can be supressed*/
         initializeAndUpdateDatabase(exceptions);
 
         //need to ensure that data exists
         try {
+        	 /* golf this can be supressed*/
             ensureDataExists();
         } catch (NoDataException ex) {
             throwFatalExceptionCollection("Unable to continue dependency-check analysis.", ex, exceptions);
@@ -689,9 +693,16 @@ public class Engine implements FileFilter, AutoCloseable {
         LOGGER.debug("\n----------------------------------------------------\nEND ANALYSIS\n----------------------------------------------------");
         final long analysisDurationSeconds = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis() - analysisStart);
         LOGGER.info("Analysis Complete ({} seconds)", analysisDurationSeconds);
+        displayDependencies();
         if (exceptions.size() > 0) {
             throw new ExceptionCollection("One or more exceptions occurred during dependency-check analysis", exceptions);
         }
+    }
+    private void displayDependencies(){
+    	LOGGER.info("get depencys count: {}", dependencies.size());
+    	 for (final Dependency dependency : dependencies) {
+    		 LOGGER.info("dependency detail\t {}", dependency.toString());
+         }
     }
 
     /**
@@ -1091,7 +1102,8 @@ public class Engine implements FileFilter, AutoCloseable {
     public synchronized void writeReports(String applicationName, String groupId, String artifactId,
             String version, File outputDir, String format) throws ReportException {
         if (mode == Mode.EVIDENCE_COLLECTION) {
-            throw new UnsupportedOperationException("Cannot generate report in evidence collection mode.");
+        	return;
+            //throw new UnsupportedOperationException("Cannot generate report in evidence collection mode.");
         }
         final DatabaseProperties prop = database.getDatabaseProperties();
         final ReportGenerator r = new ReportGenerator(applicationName, groupId, artifactId, version, dependencies, getAnalyzers(), prop, settings);

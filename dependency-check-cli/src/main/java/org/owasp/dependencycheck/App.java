@@ -28,6 +28,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.cli.ParseException;
+import org.owasp.dependencycheck.Engine.Mode;
+import org.owasp.dependencycheck.VersionCheckRuler.VersionRange;
 import org.owasp.dependencycheck.data.nvdcve.DatabaseException;
 import org.owasp.dependencycheck.dependency.Dependency;
 import org.apache.tools.ant.DirectoryScanner;
@@ -245,7 +247,7 @@ public class App {
             final List<String> antStylePaths = getPaths(files);
             final Set<File> paths = scanAntStylePaths(antStylePaths, symLinkDepth, excludes);
 
-            engine = new Engine(settings);
+            engine = new Engine(Mode.EVIDENCE_COLLECTION, settings);
             engine.scan(paths);
 
             ExceptionCollection exCol = null;
@@ -257,7 +259,16 @@ public class App {
                 }
                 exCol = ex;
             }
-
+            Dependency[] deps = engine.getDependencies();
+            VersionChecker vc = VersionChecker.getChecker("versionchecker.conf");
+            List<VersionCheckResult> results = new ArrayList<VersionCheckResult>();
+            for (Dependency dep:deps){
+            	VersionCheckResult vcr = vc.CheckRange(dep);
+            	if (null != vcr){
+            		results.add(vcr);
+            	}
+            }
+            VersionChecker.GeneReport("./report.json", results);
             try {
                 engine.writeReports(applicationName, new File(reportDirectory), outputFormat);
             } catch (ReportException ex) {
@@ -480,7 +491,7 @@ public class App {
         settings.setBoolean(Settings.KEYS.ANALYZER_COCOAPODS_ENABLED, !cli.isCocoapodsAnalyzerDisabled());
         settings.setBoolean(Settings.KEYS.ANALYZER_RUBY_GEMSPEC_ENABLED, !cli.isRubyGemspecDisabled());
         settings.setBoolean(Settings.KEYS.ANALYZER_CENTRAL_ENABLED, !cli.isCentralDisabled());
-        settings.setBoolean(Settings.KEYS.ANALYZER_NEXUS_ENABLED, !cli.isNexusDisabled());
+        settings.setBoolean(Settings.KEYS.ANALYZER_NEXUS_ENABLED, true);//!cli.isNexusDisabled());
 
         settings.setStringIfNotEmpty(Settings.KEYS.ANALYZER_BUNDLE_AUDIT_PATH, cli.getPathToBundleAudit());
         settings.setStringIfNotEmpty(Settings.KEYS.ANALYZER_NEXUS_URL, nexusUrl);

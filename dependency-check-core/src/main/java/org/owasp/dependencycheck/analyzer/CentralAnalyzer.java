@@ -110,7 +110,9 @@ public class CentralAnalyzer extends AbstractFileTypeAnalyzer {
             if (getSettings().getBoolean(Settings.KEYS.ANALYZER_CENTRAL_ENABLED)) {
                 if (!getSettings().getBoolean(Settings.KEYS.ANALYZER_NEXUS_ENABLED)
                         || NexusAnalyzer.DEFAULT_URL.equals(getSettings().getString(Settings.KEYS.ANALYZER_NEXUS_URL))) {
-                    LOGGER.debug("Enabling the Central analyzer");
+                	LOGGER.info("getSettings().getBoolean(Settings.KEYS.ANALYZER_NEXUS_ENABLED)={}",getSettings().getBoolean(Settings.KEYS.ANALYZER_NEXUS_ENABLED));
+                	LOGGER.info("getSettings().getString(Settings.KEYS.ANALYZER_NEXUS_URL)={}",getSettings().getString(Settings.KEYS.ANALYZER_NEXUS_URL));
+                    LOGGER.info("Enabling the Central analyzer");
                     retVal = true;
                 } else {
                     LOGGER.info("Nexus analyzer is enabled, disabling the Central Analyzer");

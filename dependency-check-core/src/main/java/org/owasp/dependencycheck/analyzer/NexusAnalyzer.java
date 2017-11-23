@@ -229,14 +229,16 @@ public class NexusAnalyzer extends AbstractFileTypeAnalyzer {
      */
     @Override
     public void analyzeDependency(Dependency dependency, Engine engine) throws AnalysisException {
+    	LOGGER.info("begin NexusAnalyzer");
         if (!isEnabled()) {
             return;
         }
+        
         try {
             final MavenArtifact ma = searcher.searchSha1(dependency.getSha1sum());
             dependency.addAsEvidence("nexus", ma, Confidence.HIGH);
             boolean pomAnalyzed = false;
-            LOGGER.debug("POM URL {}", ma.getPomUrl());
+            LOGGER.info("NexusAnalyzer,POM URL {}", ma.getPomUrl());
             for (Evidence e : dependency.getEvidence(EvidenceType.VENDOR)) {
                 if ("pom".equals(e.getSource())) {
                     pomAnalyzed = true;
@@ -253,7 +255,7 @@ public class NexusAnalyzer extends AbstractFileTypeAnalyzer {
                                 + "this could result in undetected CPE/CVEs.", dependency.getFileName());
                         LOGGER.debug("Unable to delete temp file");
                     }
-                    LOGGER.debug("Downloading {}", ma.getPomUrl());
+                    LOGGER.info("NexusAnalyzer,Downloading {}", ma.getPomUrl());
                     final Downloader downloader = new Downloader(getSettings());
                     downloader.fetchFile(new URL(ma.getPomUrl()), pomFile);
                     PomUtils.analyzePOM(dependency, pomFile);

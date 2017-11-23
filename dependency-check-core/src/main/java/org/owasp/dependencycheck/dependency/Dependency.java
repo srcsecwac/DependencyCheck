@@ -775,9 +775,10 @@ public class Dependency extends EvidenceCollection implements Serializable {
     @Override
     public String toString() {
         return "Dependency{ fileName='" + fileName + "', actualFilePath='" + actualFilePath
-                + "', filePath='" + filePath + "', packagePath='" + packagePath + "'}";
+                + "', filePath='" + filePath + "', packagePath='" + packagePath + ",name:version:"+ getDisplayFileName()+" eco:"+ecosystem+"'} "+super.toString();
     }
-
+    
+    
     /**
      * Add a list of suppressed vulnerabilities to the collection.
      *

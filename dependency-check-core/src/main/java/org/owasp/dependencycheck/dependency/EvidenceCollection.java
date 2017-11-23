@@ -364,6 +364,9 @@ class EvidenceCollection implements Serializable {
         return sb.toString();
     }
 
+    public Set<Evidence> getVersions(){
+    	return this.versions;
+    }
     /**
      * Returns the number of elements in the EvidenceCollection.
      *
